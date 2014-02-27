@@ -31,47 +31,47 @@ GLfloat gCubeVertexData[216] =
 {
     // Data layout for each line below is:
     // positionX, positionY, positionZ,     normalX, normalY, normalZ,
-    0.5f, -0.5f, -0.5f,        1.0f, 0.0f, 0.0f,
-    0.5f, 0.5f, -0.5f,         1.0f, 0.0f, 0.0f,
-    0.5f, -0.5f, 0.5f,         1.0f, 0.0f, 0.0f,
-    0.5f, -0.5f, 0.5f,         1.0f, 0.0f, 0.0f,
-    0.5f, 0.5f, -0.5f,          1.0f, 0.0f, 0.0f,
-    0.5f, 0.5f, 0.5f,         1.0f, 0.0f, 0.0f,
+    0.5f, 0.0f, -0.5f,        1.0f, 0.0f, 0.0f,
+    0.5f, 0.0f, 0.5f,         1.0f, 0.0f, 0.0f,
+    0.0f, 0.866f, 0.0f,         1.0f, 0.0f, 0.0f,
+    //0.5f, -0.5f, 0.5f,         1.0f, 0.0f, 0.0f,
+    //0.5f, 0.5f, -0.5f,          1.0f, 0.0f, 0.0f,
+    //0.5f, 0.5f, 0.5f,         1.0f, 0.0f, 0.0f,
     
-    0.5f, 0.5f, -0.5f,         0.0f, 1.0f, 0.0f,
-    -0.5f, 0.5f, -0.5f,        0.0f, 1.0f, 0.0f,
-    0.5f, 0.5f, 0.5f,          0.0f, 1.0f, 0.0f,
-    0.5f, 0.5f, 0.5f,          0.0f, 1.0f, 0.0f,
-    -0.5f, 0.5f, -0.5f,        0.0f, 1.0f, 0.0f,
-    -0.5f, 0.5f, 0.5f,         0.0f, 1.0f, 0.0f,
+    0.5f, 0.0f, 0.5f,         0.0f, 0.0f, 1.0f,
+    -0.5f, 0.0f, 0.5f,        0.0f, 0.0f, 1.0f,
+    0.0f, 0.866f, 0.0f,          0.0f, 0.0f, 1.0f,
+    //0.5f, 0.5f, 0.5f,          0.0f, 1.0f, 0.0f,
+    //-0.5f, 0.5f, -0.5f,        0.0f, 1.0f, 0.0f,
+    //-0.5f, 0.5f, 0.5f,         0.0f, 1.0f, 0.0f,
     
-    -0.5f, 0.5f, -0.5f,        -1.0f, 0.0f, 0.0f,
-    -0.5f, -0.5f, -0.5f,       -1.0f, 0.0f, 0.0f,
-    -0.5f, 0.5f, 0.5f,         -1.0f, 0.0f, 0.0f,
-    -0.5f, 0.5f, 0.5f,         -1.0f, 0.0f, 0.0f,
-    -0.5f, -0.5f, -0.5f,       -1.0f, 0.0f, 0.0f,
-    -0.5f, -0.5f, 0.5f,        -1.0f, 0.0f, 0.0f,
+    -0.5f, 0.0f, -0.5f,        -1.0f, 0.0f, 0.0f,
+    -0.5f, 0.0f, 0.5f,       -1.0f, 0.0f, 0.0f,
+    0.0f, 0.866f, 0.0f,         -1.0f, 0.0f, 0.0f,
+    //-0.5f, 0.5f, 0.5f,         -1.0f, 0.0f, 0.0f,
+    //-0.5f, -0.5f, -0.5f,       -1.0f, 0.0f, 0.0f,
+    //-0.5f, -0.5f, 0.5f,        -1.0f, 0.0f, 0.0f,
     
-    -0.5f, -0.5f, -0.5f,       0.0f, -1.0f, 0.0f,
-    0.5f, -0.5f, -0.5f,        0.0f, -1.0f, 0.0f,
-    -0.5f, -0.5f, 0.5f,        0.0f, -1.0f, 0.0f,
-    -0.5f, -0.5f, 0.5f,        0.0f, -1.0f, 0.0f,
-    0.5f, -0.5f, -0.5f,        0.0f, -1.0f, 0.0f,
-    0.5f, -0.5f, 0.5f,         0.0f, -1.0f, 0.0f,
+    -0.5f, 0.0f, -0.5f,       0.0f, 0.0f, -1.0f,
+    0.5f, 0.0f, -0.5f,        0.0f, 0.0f, -1.0f,
+    0.0f, 0.866f, 0.0f,        0.0f, 0.0f, -1.0f,
+    //-0.5f, -0.5f, 0.5f,        0.0f, -1.0f, 0.0f,
+    //0.5f, -0.5f, -0.5f,        0.0f, -1.0f, 0.0f,
+    //0.5f, -0.5f, 0.5f,         0.0f, -1.0f, 0.0f,
     
-    0.5f, 0.5f, 0.5f,          0.0f, 0.0f, 1.0f,
-    -0.5f, 0.5f, 0.5f,         0.0f, 0.0f, 1.0f,
-    0.5f, -0.5f, 0.5f,         0.0f, 0.0f, 1.0f,
-    0.5f, -0.5f, 0.5f,         0.0f, 0.0f, 1.0f,
-    -0.5f, 0.5f, 0.5f,         0.0f, 0.0f, 1.0f,
-    -0.5f, -0.5f, 0.5f,        0.0f, 0.0f, 1.0f,
+    0.5f, 0.0f, 0.5f,          0.0f,-1.0f, 0.0f,
+    0.5f, 0.0f, -0.5f,         0.0f, -1.0f, 0.0f,
+    -0.5f, 0.0f, -0.5f,         0.0f, -1.0f, 0.0f,
+    -0.5f, 0.0f, -0.5f,         0.0f, -1.0f, 0.0f,
+    -0.5f, 0.0f, 0.5f,         0.0f, -1.0f, 0.0f,
+    0.5f, 0.0f, 0.5f,        0.0f, -1.0f, 0.0f,
     
-    0.5f, -0.5f, -0.5f,        0.0f, 0.0f, -1.0f,
-    -0.5f, -0.5f, -0.5f,       0.0f, 0.0f, -1.0f,
-    0.5f, 0.5f, -0.5f,         0.0f, 0.0f, -1.0f,
-    0.5f, 0.5f, -0.5f,         0.0f, 0.0f, -1.0f,
-    -0.5f, -0.5f, -0.5f,       0.0f, 0.0f, -1.0f,
-    -0.5f, 0.5f, -0.5f,        0.0f, 0.0f, -1.0f
+   // 0.5f, -0.5f, -0.5f,        0.0f, 0.0f, -1.0f,
+   // -0.5f, -0.5f, -0.5f,       0.0f, 0.0f, -1.0f,
+   // 0.5f, 0.5f, -0.5f,         0.0f, 0.0f, -1.0f,
+   // 0.5f, 0.5f, -0.5f,         0.0f, 0.0f, -1.0f,
+   // -0.5f, -0.5f, -0.5f,       0.0f, 0.0f, -1.0f,
+   // -0.5f, 0.5f, -0.5f,        0.0f, 0.0f, -1.0f
 };
 
 @interface FYUViewController () {
@@ -165,7 +165,8 @@ GLfloat gCubeVertexData[216] =
     glVertexAttribPointer(GLKVertexAttribPosition, 3, GL_FLOAT, GL_FALSE, 24, BUFFER_OFFSET(0));
     glEnableVertexAttribArray(GLKVertexAttribNormal);
     glVertexAttribPointer(GLKVertexAttribNormal, 3, GL_FLOAT, GL_FALSE, 24, BUFFER_OFFSET(12));
-    
+    glEnableVertexAttribArray(GLKVertexAttribNormal);
+    glVertexAttribPointer(GLKVertexAttribNormal, 3, GL_FLOAT, GL_FALSE, 24, BUFFER_OFFSET(24));
     glBindVertexArrayOES(0);
 }
 
@@ -194,25 +195,25 @@ GLfloat gCubeVertexData[216] =
     self.effect.transform.projectionMatrix = projectionMatrix;
     
     GLKMatrix4 baseModelViewMatrix = GLKMatrix4MakeTranslation(0.0f, 0.0f, -4.0f);
-    baseModelViewMatrix = GLKMatrix4Rotate(baseModelViewMatrix, _rotation, 0.0f, 1.0f, 0.0f);
+    baseModelViewMatrix = GLKMatrix4Rotate(baseModelViewMatrix, _rotation, 1.0f, 1.0f, 0.0f);
     
     // Compute the model view matrix for the object rendered with GLKit
-    GLKMatrix4 modelViewMatrix = GLKMatrix4MakeTranslation(0.0f, 0.0f, -1.5f);
-    modelViewMatrix = GLKMatrix4Rotate(modelViewMatrix, _rotation, 1.0f, 1.0f, 1.0f);
+    GLKMatrix4 modelViewMatrix = GLKMatrix4MakeTranslation(0.0f, 0.0f, 2.0f);
+    modelViewMatrix = GLKMatrix4Rotate(modelViewMatrix, _rotation, 10.0f, 0.0f, 0.0f);
     modelViewMatrix = GLKMatrix4Multiply(baseModelViewMatrix, modelViewMatrix);
     
     self.effect.transform.modelviewMatrix = modelViewMatrix;
     
     // Compute the model view matrix for the object rendered with ES2
-    modelViewMatrix = GLKMatrix4MakeTranslation(0.0f, 0.0f, 1.5f);
-    modelViewMatrix = GLKMatrix4Rotate(modelViewMatrix, _rotation, 1.0f, 1.0f, 1.0f);
+    modelViewMatrix = GLKMatrix4MakeTranslation(0.0f, 0.0f, 0.0f);
+    modelViewMatrix = GLKMatrix4Rotate(modelViewMatrix, _rotation, 0.0f, 0.0f, 10.0f);
     modelViewMatrix = GLKMatrix4Multiply(baseModelViewMatrix, modelViewMatrix);
     
     _normalMatrix = GLKMatrix3InvertAndTranspose(GLKMatrix4GetMatrix3(modelViewMatrix), NULL);
     
     _modelViewProjectionMatrix = GLKMatrix4Multiply(projectionMatrix, modelViewMatrix);
     
-    _rotation += self.timeSinceLastUpdate * 0.5f;
+    _rotation += self.timeSinceLastUpdate * 2.0f;
 }
 
 - (void)glkView:(GLKView *)view drawInRect:(CGRect)rect
