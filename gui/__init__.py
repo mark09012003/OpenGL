@@ -301,7 +301,7 @@ class MapleStoryAutoPrayerGUI:
                         rect = self.window_manager.get_window_rect()
                         if rect:
                             window_width = rect[2] - rect[0]
-                            target_x = window_width / 7 + 50
+                            target_x = window_width / 6
                             self.automation_manager.move_to_target_position(target_x)
                     
                     # 向上按鍵0.3秒

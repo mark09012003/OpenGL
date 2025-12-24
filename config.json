@@ -1,13 +1,13 @@
 {
-    "window": "",
+    "window": "MapleStory Worlds-Artale (繁體中文版)",
     "skills": {
         "prayer_key": "1",
         "blessing_interval": "0.5",
-        "custom_skill1_enabled": false,
+        "custom_skill1_enabled": true,
         "custom_skill1_key": "3",
         "angel_blessing": "2",
-        "custom_skill2_enabled": false,
-        "custom_skill2_key": "4"
+        "custom_skill2_enabled": true,
+        "custom_skill2_key": "3"
     },
     "parameters": {
         "fm_wait": "10",
@@ -19,9 +19,6 @@
         "enter_fm": true,
         "move_direction": "left",
         "fixed_move": false,
-        "anti_detect_after_fm": false
-    },
-    "alarm": {
-        "volume": 0.5
+        "anti_detect_after_fm": true
     }
 }

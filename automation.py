@@ -103,9 +103,9 @@ class AutomationManager:
             self.logger.error(f"點擊自由市場按鈕失敗: {str(e)}")
             return False
     
-    def move_to_target_position(self, target_x: float, tolerance: int = 10, 
+    def move_to_target_position(self, target_x: float, tolerance: int = 20, 
                                 max_duration: int = 30) -> bool:
-        """使用方向鍵移動角色直到到達目標X位置"""
+        """使用方向鍵移動角色直到到達目標X位置（容許值：±20px）"""
         if not self.window_manager.is_valid():
             return False
         
