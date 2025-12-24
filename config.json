@@ -1,5 +1,5 @@
 {
-    "window": "MapleStory Worlds-Artale (繁體中文版)",
+    "window": "",
     "skills": {
         "prayer_key": "1",
         "blessing_interval": "0.5",
@@ -11,19 +11,15 @@
     },
     "parameters": {
         "fm_wait": "10",
-        "portal_wait": "1.5",
         "target_width": "1295",
         "target_height": "759",
         "left_move_time": "0.1",
         "right_move_time": "0.1",
         "fm_check_time": "3.0",
-        "debug_image": false,
         "enter_fm": true,
         "move_direction": "left",
         "fixed_move": false,
-        "anti_detect_after_fm": true,
-        "timed_stop": false,
-        "stop_time": "13:00"
+        "anti_detect_after_fm": false
     },
     "alarm": {
         "volume": 0.5
