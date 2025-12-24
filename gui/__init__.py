@@ -227,14 +227,66 @@ class MapleStoryAutoPrayerGUI:
             return
         
         self.logger.info("開始測試自由市場檢測...")
-        entered = self.detection_manager.check_free_market_entered()
+        
+        # 隱藏 GUI 視窗，避免遮擋遊戲畫面
+        self.root.withdraw()
+        try:
+            # 等待一小段時間確保視窗已隱藏
+            self.root.update()
+            time.sleep(0.2)
+            
+            # 先檢測血條位置（這會更新 last_hp_bar_info 和 all_candidates）
+            character_pos = self.detection_manager.detect_hp_bar_position()
+            
+            # 直接根據檢測結果判斷，避免重複檢測
+            entered = (character_pos is not None)
+        finally:
+            # 恢復顯示 GUI 視窗
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
+        
+        # 獲取血條信息和所有候選
+        hp_bar_info = self.detection_manager.last_hp_bar_info
+        all_candidates = self.detection_manager.all_candidates
+        min_threshold = 40
+        max_threshold = 43
+        result_text = ""
         
         if entered:
-            messagebox.showinfo("測試結果", "✓ 檢測到已進入自由市場")
-            self.logger.info("測試結果：已進入自由市場")
+            if hp_bar_info:
+                width = hp_bar_info.get('width', 0)
+                result_text = f"✓ 檢測到已進入自由市場\n\n血條信息：\n- 連續紅色區間長度: {width}px\n- 血條位置: ({hp_bar_info['x_start']:.0f}, {hp_bar_info['y']:.0f})\n- 人物位置: ({hp_bar_info['character_x']:.0f}, {hp_bar_info['character_y']:.0f})"
+            else:
+                result_text = "✓ 檢測到已進入自由市場\n\n（未獲取到血條詳細信息）"
+            
+            # 顯示所有候選（包括不在範圍內的）
+            if all_candidates:
+                out_of_range = [c for c in all_candidates if c['width'] < min_threshold or c['width'] > max_threshold]
+                if out_of_range:
+                    result_text += f"\n\n不在範圍內的候選 ({len(out_of_range)} 個，寬度 < {min_threshold}px 或 > {max_threshold}px):"
+                    for c in out_of_range:
+                        result_text += f"\n- 位置: ({c['x_start']:.0f}, {c['y']:.0f}), 寬度: {c['width']}px"
+            
+            messagebox.showinfo("測試結果", result_text)
+            self.logger.info(f"測試結果：已進入自由市場，血條寬度: {hp_bar_info['width'] if hp_bar_info else '未知'}px")
         else:
-            messagebox.showinfo("測試結果", "✗ 未檢測到自由市場\n請確認是否已進入自由市場")
-            self.logger.info("測試結果：未進入自由市場")
+            if hp_bar_info:
+                width = hp_bar_info.get('width', 0)
+                result_text = f"✗ 未檢測到自由市場\n\n血條信息：\n- 連續紅色區間長度: {width}px\n- 血條位置: ({hp_bar_info['x_start']:.0f}, {hp_bar_info['y']:.0f})\n\n請確認是否已進入自由市場"
+            else:
+                result_text = "✗ 未檢測到自由市場\n\n（未檢測到血條）\n請確認是否已進入自由市場"
+            
+            # 顯示所有候選（包括不在範圍內的）
+            if all_candidates:
+                out_of_range = [c for c in all_candidates if c['width'] < min_threshold or c['width'] > max_threshold]
+                if out_of_range:
+                    result_text += f"\n\n不在範圍內的候選 ({len(out_of_range)} 個，寬度 < {min_threshold}px 或 > {max_threshold}px):"
+                    for c in out_of_range:
+                        result_text += f"\n- 位置: ({c['x_start']:.0f}, {c['y']:.0f}), 寬度: {c['width']}px"
+            
+            messagebox.showinfo("測試結果", result_text)
+            self.logger.info(f"測試結果：未進入自由市場，血條寬度: {hp_bar_info['width'] if hp_bar_info else '未檢測到'}px")
     
     def toggle_overlay(self):
         """切換懸浮框顯示"""
@@ -258,9 +310,129 @@ class MapleStoryAutoPrayerGUI:
                     pass
     
     def update_overlay_position(self):
-        """更新懸浮框位置（簡化版）"""
-        # 這裡可以實現懸浮框更新邏輯
-        pass
+        """更新懸浮框位置，顯示所有檢測到的候選"""
+        while self.show_overlay:
+            if not self.window_manager.is_valid():
+                if self.hp_bar_overlay_window:
+                    try:
+                        self.hp_bar_overlay_window.withdraw()
+                    except:
+                        pass
+                time.sleep(0.5)
+                continue
+            
+            try:
+                rect = self.window_manager.get_window_rect()
+                if not rect:
+                    time.sleep(0.5)
+                    continue
+                
+                window_x, window_y, window_width, window_height = rect
+                
+                # 檢測血條位置（這會更新 all_candidates）
+                self.detection_manager.detect_hp_bar_position()
+                all_candidates = self.detection_manager.all_candidates
+                
+                # 創建或更新懸浮框
+                if not self.hp_bar_overlay_window:
+                    self._create_hp_bar_overlay_window()
+                
+                if self.hp_bar_overlay_window:
+                    try:
+                        # 更新懸浮框位置和內容
+                        self._update_hp_bar_overlay(all_candidates, window_x, window_y)
+                        self.hp_bar_overlay_window.deiconify()
+                        self.hp_bar_overlay_window.lift()
+                    except Exception as e:
+                        self.logger.error(f"更新懸浮框失敗: {str(e)}")
+                
+            except Exception as e:
+                self.logger.error(f"更新懸浮框位置失敗: {str(e)}")
+            
+            time.sleep(0.3)  # 每0.3秒更新一次
+    
+    def _create_hp_bar_overlay_window(self):
+        """創建血條懸浮框視窗"""
+        try:
+            self.hp_bar_overlay_window = tk.Toplevel(self.root)
+            self.hp_bar_overlay_window.overrideredirect(True)  # 移除標題欄
+            self.hp_bar_overlay_window.attributes("-topmost", True)  # 置頂
+            self.hp_bar_overlay_window.attributes("-transparentcolor", "black")  # 黑色透明
+            self.hp_bar_overlay_window.configure(bg="black")
+            self.hp_bar_overlay_window.geometry("1x1+0+0")  # 初始大小
+        except Exception as e:
+            self.logger.error(f"創建懸浮框視窗失敗: {str(e)}")
+            self.hp_bar_overlay_window = None
+    
+    def _update_hp_bar_overlay(self, all_candidates, window_x, window_y):
+        """更新血條懸浮框，顯示所有檢測到的候選"""
+        if not self.hp_bar_overlay_window:
+            return
+        
+        try:
+            rect = self.window_manager.get_window_rect()
+            if not rect:
+                return
+            
+            window_x, window_y, window_width, window_height = rect
+            
+            # 清除舊的內容
+            for widget in self.hp_bar_overlay_window.winfo_children():
+                widget.destroy()
+            
+            if not all_candidates:
+                self.hp_bar_overlay_window.withdraw()
+                return
+            
+            min_threshold = 40
+            max_threshold = 43
+            
+            # 創建Canvas來繪製箭頭
+            canvas = tk.Canvas(
+                self.hp_bar_overlay_window,
+                bg="black",
+                highlightthickness=0,
+                width=window_width,
+                height=window_height
+            )
+            canvas.pack()
+            
+            # 為每個候選繪製箭頭
+            for i, candidate in enumerate(all_candidates):
+                x_start = candidate['x_start']
+                y = candidate['y']
+                width = candidate['width']
+                is_valid = min_threshold <= width <= max_threshold
+                
+                # 計算箭頭位置（相對於懸浮框視窗，不是絕對位置）
+                arrow_x = x_start + width / 2  # 血條中心X
+                arrow_y = y - 20  # 箭頭在血條上方20像素
+                
+                # 箭頭顏色：達到門檻用綠色，未達門檻用黃色
+                arrow_color = "#00FF00" if is_valid else "#FFFF00"
+                
+                # 繪製箭頭（向下指向血條）
+                points = [
+                    arrow_x, arrow_y,
+                    arrow_x - 10, arrow_y + 15,
+                    arrow_x + 10, arrow_y + 15
+                ]
+                canvas.create_polygon(points, fill=arrow_color, outline=arrow_color, width=2)
+                
+                # 繪製寬度標籤
+                label_text = f"{width}px"
+                canvas.create_text(
+                    arrow_x, arrow_y - 15,
+                    text=label_text,
+                    fill=arrow_color,
+                    font=("Consolas", 10, "bold")
+                )
+            
+            # 設置懸浮框位置和大小
+            self.hp_bar_overlay_window.geometry(f"{window_width}x{window_height}+{int(window_x)}+{int(window_y)}")
+            
+        except Exception as e:
+            self.logger.error(f"更新懸浮框內容失敗: {str(e)}")
     
     def show_faq(self):
         """顯示幫助"""

@@ -12,6 +12,8 @@ class DetectionManager:
     def __init__(self, window_manager, logger=None):
         self.window_manager = window_manager
         self.logger = logger or logging.getLogger(__name__)
+        self.last_hp_bar_info = None  # 保存最後一次檢測到的血條信息
+        self.all_candidates = []  # 保存所有檢測到的候選（包括未達門檻的）
     
     def detect_hp_bar_position(self) -> Optional[Tuple[float, float]]:
         """檢測角色頭頂上方的紅色血條位置，用於判斷人物位置（相對於視窗）"""
@@ -61,6 +63,8 @@ class DetectionManager:
             
             if len(row_red_pixels) == 0:
                 self.logger.warning(f"在 y={target_y} 未檢測到紅色像素")
+                self.last_hp_bar_info = None  # 清空血條信息
+                self.all_candidates = []  # 清空候選列表
                 return None
             
             # 找出 y=445 這一行中所有連續的紅色像素區間
@@ -97,31 +101,75 @@ class DetectionManager:
             
             if not candidates:
                 self.logger.warning(f"在 y={target_y} 未找到連續的紅色像素區間")
+                self.last_hp_bar_info = None  # 清空血條信息
+                self.all_candidates = []  # 清空候選列表
                 return None
             
+            # 保存所有候選（包括未達門檻的）供測試和懸浮框使用
+            self.all_candidates = candidates.copy()
+            
+            # 記錄所有候選
+            self.logger.info(f"檢測到 {len(candidates)} 個連續紅色像素區間:")
+            for c in candidates:
+                self.logger.info(f"  - 位置: ({c['x_start']:.0f}, {c['y']:.0f}), 寬度: {c['width']}px")
+            
             # 選擇最長的連續紅色區間（最可能是血條）
+            # 寬度範圍：40~43px
+            min_width_threshold = 40
+            max_width_threshold = 43
             best_candidate = None
             best_width = 0
             
+            # 記錄在範圍內的候選
+            in_range = [c for c in candidates if min_width_threshold <= c['width'] <= max_width_threshold]
+            if in_range:
+                self.logger.info(f"在範圍內的候選 ({len(in_range)} 個，寬度 {min_width_threshold}~{max_width_threshold}px):")
+                for c in in_range:
+                    self.logger.info(f"  - 位置: ({c['x_start']:.0f}, {c['y']:.0f}), 寬度: {c['width']}px")
+            
             for candidate in candidates:
                 width = candidate['width']
-                if width > best_width:
+                # 只考慮寬度在 40~43px 之間的區間
+                if min_width_threshold <= width <= max_width_threshold and width > best_width:
                     best_width = width
                     best_candidate = candidate
             
+            # 記錄不在範圍內的候選
+            out_of_range = [c for c in candidates if c['width'] < min_width_threshold or c['width'] > max_width_threshold]
+            if out_of_range:
+                self.logger.info(f"不在範圍內的候選 ({len(out_of_range)} 個，寬度 < {min_width_threshold}px 或 > {max_width_threshold}px):")
+                for c in out_of_range:
+                    self.logger.info(f"  - 位置: ({c['x_start']:.0f}, {c['y']:.0f}), 寬度: {c['width']}px")
+            
             if best_candidate is None:
-                self.logger.warning("未找到連續的紅色像素區間")
+                self.logger.warning(f"未找到寬度在 {min_width_threshold}~{max_width_threshold}px 之間的連續紅色像素區間")
+                if in_range:
+                    self.logger.warning(f"但檢測到 {len(in_range)} 個在範圍內的候選，這可能是邏輯錯誤！")
+                self.last_hp_bar_info = None  # 清空血條信息
                 return None
             
             # 角色位置判斷為連續紅色出現的最左邊
             character_x = best_candidate['x_start']  # 人物水平位置為連續紅色區間的最左邊
             character_y = best_candidate['y'] + 15  # 人物位置在血條下方約15像素
             
-            self.logger.info(f"檢測到血條 - 血條位置: ({best_candidate['x_start']:.0f}, {best_candidate['y']:.0f}), 人物位置: ({character_x:.0f}, {character_y:.0f})")
+            self.logger.info(f"檢測到血條 - 血條位置: ({best_candidate['x_start']:.0f}, {best_candidate['y']:.0f}), 寬度: {best_width}px, 人物位置: ({character_x:.0f}, {character_y:.0f})")
+            
+            # 保存血條信息供測試使用
+            self.last_hp_bar_info = {
+                'x_start': best_candidate['x_start'],
+                'x_end': best_candidate['x_end'],
+                'y': best_candidate['y'],
+                'width': best_width,
+                'character_x': character_x,
+                'character_y': character_y
+            }
+            
             return (character_x, character_y)  # 返回人物位置（相對於視窗）
             
         except Exception as e:
             self.logger.error(f"檢測紅色血條位置失敗: {str(e)}")
+            self.last_hp_bar_info = None  # 清空血條信息
+            self.all_candidates = []  # 清空候選列表
             return None
     
     def check_free_market_entered(self) -> bool:
