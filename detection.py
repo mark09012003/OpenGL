@@ -125,56 +125,18 @@ class DetectionManager:
             return None
     
     def check_free_market_entered(self) -> bool:
-        """檢查是否成功進入自由市場（檢查小地圖）"""
-        window_handle = self.window_manager.get_window_handle()
-        if not window_handle:
-            return False
-        
+        """檢查是否成功進入自由市場（檢測y=445是否有血條）"""
         try:
-            # 檢查小地圖
-            rect = self.window_manager.get_window_rect()
-            if not rect:
-                return False
+            # 使用血條檢測來判斷是否進入自由市場
+            # 如果能在y=445檢測到血條，說明角色在自由市場中
+            character_pos = self.detect_hp_bar_position()
             
-            window_x, window_y, window_width, window_height = rect
-            
-            # 小地圖區域在左上角
-            minimap_x = window_x + window_width * 0.02
-            minimap_y = window_y + window_height * 0.05
-            minimap_width = window_width * 0.15
-            minimap_height = window_height * 0.12
-            
-            # 截圖小地圖區域
-            screenshot = ImageGrab.grab(bbox=(
-                int(minimap_x), 
-                int(minimap_y), 
-                int(minimap_x + minimap_width), 
-                int(minimap_y + minimap_height)
-            ))
-            
-            # 轉換為RGB數組
-            img_array = np.array(screenshot)
-            
-            # 檢查小地圖下方文字區域
-            text_region_height = int(minimap_height * 0.3)
-            text_region = img_array[-text_region_height:, :] if text_region_height > 0 else img_array
-            
-            # 檢查文字區域的對比度
-            gray_values = np.mean(text_region, axis=2)
-            avg_brightness = np.mean(gray_values)
-            brightness_std = np.std(gray_values)
-            high_contrast_pixels = np.sum((gray_values > 200) | (gray_values < 50))
-            total_pixels = text_region.shape[0] * text_region.shape[1]
-            contrast_ratio = high_contrast_pixels / total_pixels if total_pixels > 0 else 0
-            
-            self.logger.info(f"小地圖檢測 - 平均亮度: {avg_brightness:.1f}, 亮度標準差: {brightness_std:.1f}, 對比度比例: {contrast_ratio:.2f}")
-            
-            # 判斷條件
-            if contrast_ratio > 0.08 or (avg_brightness > 150 and brightness_std > 30):
-                self.logger.info("檢測到可能已進入自由市場（基於小地圖特徵）")
+            if character_pos is not None:
+                self.logger.info("檢測到血條（y=445），已進入自由市場")
                 return True
-            
-            return False
+            else:
+                self.logger.info("未檢測到血條（y=445），未進入自由市場")
+                return False
             
         except Exception as e:
             self.logger.error(f"檢查自由市場狀態失敗: {str(e)}")

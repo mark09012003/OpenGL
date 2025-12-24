@@ -8,6 +8,7 @@ import time
 import random
 import logging
 import pyautogui
+from datetime import datetime, timedelta
 
 from gui.components import (
     create_window_section, create_skill_section, create_parameter_section,
@@ -46,6 +47,8 @@ class MapleStoryAutoPrayerGUI:
         self.is_running = False
         self.window_map = {}
         self.last_entered_free_market = False
+        self.auto_stop_timer = None
+        self.start_time = None
         
         # 懸浮框相關
         self.overlay_window = None
@@ -208,6 +211,31 @@ class MapleStoryAutoPrayerGUI:
             self.custom_skill2_entry.pack_forget()
         self.auto_save_config()
     
+    def toggle_auto_stop_entry(self):
+        """切換定時停止輸入欄位狀態"""
+        if hasattr(self, 'auto_stop_time_entry'):
+            if self.auto_stop_enabled_var.get():
+                self.auto_stop_time_entry.config(state="normal")
+            else:
+                self.auto_stop_time_entry.config(state="disabled")
+        self.auto_save_config()
+    
+    def test_free_market(self):
+        """測試是否進入自由市場"""
+        if not self.window_manager.is_valid():
+            messagebox.showwarning("警告", "請先選擇視窗")
+            return
+        
+        self.logger.info("開始測試自由市場檢測...")
+        entered = self.detection_manager.check_free_market_entered()
+        
+        if entered:
+            messagebox.showinfo("測試結果", "✓ 檢測到已進入自由市場")
+            self.logger.info("測試結果：已進入自由市場")
+        else:
+            messagebox.showinfo("測試結果", "✗ 未檢測到自由市場\n請確認是否已進入自由市場")
+            self.logger.info("測試結果：未進入自由市場")
+    
     def toggle_overlay(self):
         """切換懸浮框顯示"""
         self.show_overlay = not self.show_overlay
@@ -272,9 +300,22 @@ class MapleStoryAutoPrayerGUI:
         
         self.is_running = True
         self.automation_manager.is_running = True
+        self.automation_manager.on_hp_bar_detection_failed = self.on_hp_bar_detection_failed
         self.start_btn.config(state="disabled")
         self.stop_btn.config(state="normal")
         self.logger.info("開始自動化流程")
+        
+        # 檢查是否已在自由市場，如果是則先離開
+        if self.detection_manager.check_free_market_entered():
+            self.logger.info("檢測到角色已在自由市場，先離開自由市場")
+            if not self.automation_manager.exit_free_market():
+                self.logger.warning("離開自由市場失敗，但繼續執行")
+            else:
+                self.logger.info("已成功離開自由市場，開始執行技能")
+        
+        # 設置定時停止
+        self.start_time = time.time()
+        self.setup_auto_stop()
         
         thread = threading.Thread(target=self.automation_loop, daemon=True)
         thread.start()
@@ -284,9 +325,70 @@ class MapleStoryAutoPrayerGUI:
         self.is_running = False
         self.automation_manager.is_running = False
         self.show_overlay = False
+        self.cancel_auto_stop()
         self.logger.info("停止自動化流程")
         self.stop_btn.config(state="disabled")
         self.start_btn.config(state="normal")
+    
+    def setup_auto_stop(self):
+        """設置定時停止（根據指定時間點）"""
+        try:
+            # 檢查是否啟用定時停止
+            if not (hasattr(self, 'auto_stop_enabled_var') and self.auto_stop_enabled_var.get()):
+                return
+            
+            time_str = self.auto_stop_time_var.get() if hasattr(self, 'auto_stop_time_var') else "23:59"
+            
+            # 解析時間字串 (時:分)
+            try:
+                hour, minute = map(int, time_str.split(':'))
+                if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                    raise ValueError("時間格式錯誤")
+            except (ValueError, AttributeError):
+                self.logger.error(f"定時停止時間格式錯誤: {time_str}，應為 時:分 (例如 14:30)")
+                messagebox.showerror("錯誤", f"定時停止時間格式錯誤: {time_str}\n請使用 時:分 格式 (例如 14:30)")
+                return
+            
+            # 計算目標時間
+            now = datetime.now()
+            target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            
+            # 如果目標時間已過，則設為明天
+            if target_time <= now:
+                target_time += timedelta(days=1)
+            
+            # 計算等待時間（秒）
+            wait_seconds = (target_time - now).total_seconds()
+            
+            if wait_seconds > 0:
+                self.logger.info(f"已設置定時停止：將於 {target_time.strftime('%H:%M')} 自動停止 (還有 {wait_seconds/60:.1f} 分鐘)")
+                self.auto_stop_timer = threading.Timer(wait_seconds, self.auto_stop_callback)
+                self.auto_stop_timer.daemon = True
+                self.auto_stop_timer.start()
+            else:
+                self.logger.warning("定時停止時間計算錯誤")
+        except Exception as e:
+            self.logger.error(f"設置定時停止失敗: {str(e)}")
+            messagebox.showerror("錯誤", f"設置定時停止失敗: {str(e)}")
+    
+    def cancel_auto_stop(self):
+        """取消定時停止"""
+        if self.auto_stop_timer:
+            self.auto_stop_timer.cancel()
+            self.auto_stop_timer = None
+    
+    def auto_stop_callback(self):
+        """定時停止回調"""
+        current_time = datetime.now().strftime('%H:%M')
+        self.logger.info(f"定時停止時間到達 ({current_time})，自動停止程式")
+        self.root.after(0, lambda: messagebox.showinfo("定時停止", f"已到達指定時間 ({current_time})，程式已自動停止"))
+        self.root.after(0, self.stop_automation)
+    
+    def on_hp_bar_detection_failed(self):
+        """血條檢測失敗回調"""
+        self.logger.error("血條檢測失敗，終止程式")
+        self.root.after(0, lambda: messagebox.showerror("錯誤", "無法檢測到血條，程式已終止\n請檢查遊戲視窗是否正確顯示"))
+        self.root.after(0, self.stop_automation)
     
     def automation_loop(self):
         """自動化循環 - 可隨時終止"""
@@ -296,13 +398,13 @@ class MapleStoryAutoPrayerGUI:
                 if self.last_entered_free_market:
                     self.last_entered_free_market = False
                     
-                    # 移動到目標位置
+                    # 移動到目標位置（固定為 250，容許誤差 ±20）
                     if self.is_running:
-                        rect = self.window_manager.get_window_rect()
-                        if rect:
-                            window_width = rect[2] - rect[0]
-                            target_x = window_width / 6
-                            self.automation_manager.move_to_target_position(target_x)
+                        target_x = 240
+                        result = self.automation_manager.move_to_target_position(target_x, tolerance=20)
+                        if not result:
+                            # 移動失敗（可能是血條檢測失敗）
+                            break
                     
                     # 向上按鍵0.3秒
                     if self.is_running:
@@ -404,6 +506,8 @@ class MapleStoryAutoPrayerGUI:
                 "left_move_time": self.left_move_time_var.get() if hasattr(self, 'left_move_time_var') else "0.1",
                 "right_move_time": self.right_move_time_var.get() if hasattr(self, 'right_move_time_var') else "0.1",
                 "fm_check_time": self.fm_check_time_var.get() if hasattr(self, 'fm_check_time_var') else "3.0",
+                "auto_stop_enabled": self.auto_stop_enabled_var.get() if hasattr(self, 'auto_stop_enabled_var') else False,
+                "auto_stop_time": self.auto_stop_time_var.get() if hasattr(self, 'auto_stop_time_var') else "23:59",
                 "enter_fm": self.enter_fm_var.get() if hasattr(self, 'enter_fm_var') else True,
                 "move_direction": self.move_direction_var.get() if hasattr(self, 'move_direction_var') else "left",
                 "fixed_move": self.fixed_move_var.get() if hasattr(self, 'fixed_move_var') else False,
@@ -450,6 +554,7 @@ class MapleStoryAutoPrayerGUI:
                 ("left_move_time", "left_move_time_var"),
                 ("right_move_time", "right_move_time_var"),
                 ("fm_check_time", "fm_check_time_var"),
+                ("auto_stop_time", "auto_stop_time_var"),
             ]:
                 if key in params and hasattr(self, var_name):
                     getattr(self, var_name).set(params[key])
@@ -462,6 +567,13 @@ class MapleStoryAutoPrayerGUI:
                 self.fixed_move_var.set(params["fixed_move"])
             if "anti_detect_after_fm" in params and hasattr(self, 'anti_detect_after_fm_var'):
                 self.anti_detect_after_fm_var.set(params["anti_detect_after_fm"])
+            
+            # 載入定時停止設定
+            if "auto_stop_enabled" in params and hasattr(self, 'auto_stop_enabled_var'):
+                self.auto_stop_enabled_var.set(params["auto_stop_enabled"])
+                self.toggle_auto_stop_entry()  # 更新輸入欄位狀態
+            if "auto_stop_time" in params and hasattr(self, 'auto_stop_time_var'):
+                self.auto_stop_time_var.set(params["auto_stop_time"])
     
     def on_closing(self):
         """視窗關閉事件"""

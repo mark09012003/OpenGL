@@ -101,18 +101,30 @@ def create_parameter_section(parent, app):
     app.fm_check_time_var = tk.StringVar(value="3.0")
     ThemedEntry(param_grid, textvariable=app.fm_check_time_var, width=10).grid(row=0, column=3, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL)
     
-    # 第二行：防偵測移動時間（視窗解析度已固定為1295x759，不再顯示在UI）
+    # 第二行：定時停止
+    app.auto_stop_enabled_var = tk.BooleanVar(value=False)
+    ttk.Checkbutton(param_grid, text="定時停止", variable=app.auto_stop_enabled_var,
+                   style='TCheckbutton', command=lambda: app.toggle_auto_stop_entry()).grid(
+                   row=1, column=0, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
+    
+    ThemedLabel(param_grid, "停止時間:", width=12, anchor="w").grid(row=1, column=1, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
+    app.auto_stop_time_var = tk.StringVar(value="23:59")
+    app.auto_stop_time_entry = ThemedEntry(param_grid, textvariable=app.auto_stop_time_var, width=10, state="disabled")
+    app.auto_stop_time_entry.grid(row=1, column=2, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL)
+    ThemedLabel(param_grid, "(時:分)", width=8, anchor="w", color=Theme.TEXT_SECONDARY).grid(row=1, column=3, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
+    
+    # 第三行：防偵測移動時間（視窗解析度已固定為1295x759，不再顯示在UI）
     # 固定解析度：1295 x 759
     app.target_width_var = tk.StringVar(value="1295")
     app.target_height_var = tk.StringVar(value="759")
     
-    ThemedLabel(param_grid, "左移時間(秒):", width=18, anchor="w").grid(row=1, column=0, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
+    ThemedLabel(param_grid, "左移時間(秒):", width=18, anchor="w").grid(row=2, column=0, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
     app.left_move_time_var = tk.StringVar(value="0.1")
-    ThemedEntry(param_grid, textvariable=app.left_move_time_var, width=10).grid(row=1, column=1, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL)
+    ThemedEntry(param_grid, textvariable=app.left_move_time_var, width=10).grid(row=2, column=1, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL)
     
-    ThemedLabel(param_grid, "右移時間(秒):", width=18, anchor="w").grid(row=1, column=2, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
+    ThemedLabel(param_grid, "右移時間(秒):", width=18, anchor="w").grid(row=2, column=2, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
     app.right_move_time_var = tk.StringVar(value="0.1")
-    ThemedEntry(param_grid, textvariable=app.right_move_time_var, width=10).grid(row=1, column=3, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL)
+    ThemedEntry(param_grid, textvariable=app.right_move_time_var, width=10).grid(row=2, column=3, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL)
     
     # 選項區域
     options_frame = ThemedFrame(frame)
@@ -159,6 +171,11 @@ def create_action_buttons(parent, app):
     app.stop_btn = ThemedButton(frame, "■ STOP", command=app.stop_automation, 
                                 variant='danger', width=18, height=2, state="disabled")
     app.stop_btn.pack(pady=(0, Theme.PADDING_NORMAL), fill="x")
+    
+    # 測試自由市場按鈕
+    test_fm_btn = ThemedButton(frame, "測試自由市場", command=app.test_free_market, 
+                               variant='secondary', size=Theme.FONT_SIZE_NORMAL)
+    test_fm_btn.pack(pady=(0, Theme.PADDING_NORMAL), fill="x")
     
     btn_row = ThemedFrame(frame)
     btn_row.pack(fill="x", pady=Theme.PADDING_SMALL)

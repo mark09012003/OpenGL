@@ -10,12 +10,14 @@
         "custom_skill2_key": "3"
     },
     "parameters": {
-        "fm_wait": "10",
+        "fm_wait": "230",
         "target_width": "1295",
         "target_height": "759",
         "left_move_time": "0.1",
         "right_move_time": "0.1",
         "fm_check_time": "3.0",
+        "auto_stop_enabled": false,
+        "auto_stop_time": "0",
         "enter_fm": true,
         "move_direction": "left",
         "fixed_move": false,

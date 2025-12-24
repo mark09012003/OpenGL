@@ -104,7 +104,7 @@ class AutomationManager:
             return False
     
     def move_to_target_position(self, target_x: float, tolerance: int = 20, 
-                                max_duration: int = 30) -> bool:
+                                max_duration: int = 30, check_hp_bar_on_fail: bool = False) -> bool:
         """使用方向鍵移動角色直到到達目標X位置（容許值：±20px）"""
         if not self.window_manager.is_valid():
             return False
@@ -126,13 +126,30 @@ class AutomationManager:
                 character_pos = self.detection_manager.detect_hp_bar_position()
                 
                 if character_pos is None:
-                    self.logger.warning("無法檢測到血條，繼續嘗試...")
+                    # 只有在 check_hp_bar_on_fail=True 時才終止程式（用於離開自由市場時）
+                    if check_hp_bar_on_fail:
+                        self.logger.error("無法檢測到血條，終止程式")
+                        self.is_running = False
+                        # 通知GUI顯示錯誤訊息
+                        if hasattr(self, 'on_hp_bar_detection_failed'):
+                            self.on_hp_bar_detection_failed()
+                    else:
+                        # 其他情況下，只記錄警告並繼續嘗試
+                        self.logger.warning("無法檢測到血條，繼續嘗試...")
+                    
                     if current_key:
                         pyautogui.keyUp(current_key)
                         current_key = None
-                    if not self._sleep_with_check(0.5):
-                        break
-                    continue
+                    pyautogui.keyUp('left')
+                    pyautogui.keyUp('right')
+                    
+                    if check_hp_bar_on_fail:
+                        return False
+                    else:
+                        # 繼續嘗試，等待後重試
+                        if not self._sleep_with_check(0.5):
+                            break
+                        continue
                 
                 current_x, _ = character_pos
                 distance = abs(current_x - target_x)
@@ -187,6 +204,55 @@ class AutomationManager:
                 pass
             return False
     
+    def exit_free_market(self) -> bool:
+        """離開自由市場（移動到定點後按上鍵）"""
+        if not self.window_manager.is_valid():
+            return False
+        
+        try:
+            if not self.window_manager.bring_to_front():
+                return False
+            
+            self.logger.info("準備離開自由市場（移動到定點後按上鍵）")
+            
+            # 目標位置固定為 250（容許誤差 ±20）
+            target_x = 250
+            
+            # 移動到目標位置（離開自由市場時，檢測不到血條要終止）
+            self.logger.info(f"移動到目標位置 X={target_x} 以離開自由市場")
+            if not self.move_to_target_position(target_x, tolerance=20, check_hp_bar_on_fail=True):
+                self.logger.warning("移動到目標位置失敗")
+                return False
+            
+            # 等待一小段時間
+            if not self._sleep_with_check(0.5):
+                return False
+            
+            # 按上鍵離開自由市場
+            self.logger.info("按上鍵離開自由市場")
+            pyautogui.keyDown('up')
+            if not self._sleep_with_check(0.3):
+                pyautogui.keyUp('up')
+                return False
+            pyautogui.keyUp('up')
+            
+            # 等待離開動畫完成
+            if not self._sleep_with_check(2.0):
+                return False
+            
+            # 檢查是否已離開自由市場
+            still_in_fm = self.detection_manager.check_free_market_entered()
+            if not still_in_fm:
+                self.logger.info("已成功離開自由市場")
+                return True
+            else:
+                self.logger.warning("按上鍵後仍在自由市場，可能移動位置不正確")
+                return False
+            
+        except Exception as e:
+            self.logger.error(f"離開自由市場失敗: {str(e)}")
+            return False
+    
     def enter_free_market(self, max_retries: int = 5, check_time: float = 3.0) -> bool:
         """進入自由市場，如果失敗則重試"""
         retry_count = 0
@@ -237,16 +303,12 @@ class AutomationManager:
         if num_moves == 0:
             return
         
-        self.logger.info(f"防偵測移動：執行 {num_moves} 次")
+        # 始終使用指定的方向，不交替
+        move_key = 'left' if direction == "left" else 'right'
+        
+        self.logger.info(f"防偵測移動：執行 {num_moves} 次，方向：{direction}")
         
         for i in range(num_moves):
-            # 如果執行兩次，第二次反轉方向
-            current_direction = direction
-            if num_moves == 2 and i == 1:
-                current_direction = "right" if direction == "left" else "left"
-            
-            move_key = 'left' if current_direction == "left" else 'right'
-            
             if not self.is_running:
                 break
                 

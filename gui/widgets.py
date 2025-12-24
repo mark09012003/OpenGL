@@ -23,8 +23,8 @@ class ThemedLabel(tk.Label):
 
 class ThemedButton(tk.Button):
     """主題化Button"""
-    def __init__(self, parent, text="", command=None, 
-                 variant='secondary', **kwargs):
+    def __init__(self, parent, text="", command=None,
+                 variant='secondary', size=None, weight='bold', **kwargs):
         # 根據變體選擇顏色
         if variant == 'primary':
             bg = Theme.BUTTON_PRIMARY
@@ -42,7 +42,12 @@ class ThemedButton(tk.Button):
             active_bg = Theme.BUTTON_SECONDARY_HOVER
             active_fg = Theme.TEXT_HIGHLIGHT
         
-        font = kwargs.pop('font', Theme.get_font_config(Theme.FONT_SIZE_LARGE, 'bold'))
+        # 處理 size 參數
+        if size is not None:
+            font = Theme.get_font_config(size, weight)
+        else:
+            font = kwargs.pop('font', Theme.get_font_config(Theme.FONT_SIZE_LARGE, 'bold'))
+        
         relief = kwargs.pop('relief', 'flat')
         cursor = kwargs.pop('cursor', 'hand2')
         bd = kwargs.pop('bd', 0)
