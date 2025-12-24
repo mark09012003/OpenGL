@@ -305,14 +305,6 @@ class MapleStoryAutoPrayerGUI:
         self.stop_btn.config(state="normal")
         self.logger.info("開始自動化流程")
         
-        # 檢查是否已在自由市場，如果是則先離開
-        if self.detection_manager.check_free_market_entered():
-            self.logger.info("檢測到角色已在自由市場，先離開自由市場")
-            if not self.automation_manager.exit_free_market():
-                self.logger.warning("離開自由市場失敗，但繼續執行")
-            else:
-                self.logger.info("已成功離開自由市場，開始執行技能")
-        
         # 設置定時停止
         self.start_time = time.time()
         self.setup_auto_stop()
