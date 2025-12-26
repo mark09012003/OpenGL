@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+*.egg
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# 虛擬環境
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# 系統檔案
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 日誌檔案
+*.log
+logs/
+
+# 用戶配置（可選，如果需要保留預設配置則移除這行）
+# config.json
+
+# 臨時檔案
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# 測試覆蓋率
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# 其他
+*.db
+*.sqlite
+*.sqlite3
+

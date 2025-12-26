@@ -108,24 +108,12 @@ class DetectionManager:
             # 保存所有候選（包括未達門檻的）供測試和懸浮框使用
             self.all_candidates = candidates.copy()
             
-            # 記錄所有候選
-            self.logger.info(f"檢測到 {len(candidates)} 個連續紅色像素區間:")
-            for c in candidates:
-                self.logger.info(f"  - 位置: ({c['x_start']:.0f}, {c['y']:.0f}), 寬度: {c['width']}px")
-            
             # 選擇最長的連續紅色區間（最可能是血條）
             # 寬度範圍：40~43px
             min_width_threshold = 40
             max_width_threshold = 43
             best_candidate = None
             best_width = 0
-            
-            # 記錄在範圍內的候選
-            in_range = [c for c in candidates if min_width_threshold <= c['width'] <= max_width_threshold]
-            if in_range:
-                self.logger.info(f"在範圍內的候選 ({len(in_range)} 個，寬度 {min_width_threshold}~{max_width_threshold}px):")
-                for c in in_range:
-                    self.logger.info(f"  - 位置: ({c['x_start']:.0f}, {c['y']:.0f}), 寬度: {c['width']}px")
             
             for candidate in candidates:
                 width = candidate['width']
@@ -134,17 +122,8 @@ class DetectionManager:
                     best_width = width
                     best_candidate = candidate
             
-            # 記錄不在範圍內的候選
-            out_of_range = [c for c in candidates if c['width'] < min_width_threshold or c['width'] > max_width_threshold]
-            if out_of_range:
-                self.logger.info(f"不在範圍內的候選 ({len(out_of_range)} 個，寬度 < {min_width_threshold}px 或 > {max_width_threshold}px):")
-                for c in out_of_range:
-                    self.logger.info(f"  - 位置: ({c['x_start']:.0f}, {c['y']:.0f}), 寬度: {c['width']}px")
-            
             if best_candidate is None:
                 self.logger.warning(f"未找到寬度在 {min_width_threshold}~{max_width_threshold}px 之間的連續紅色像素區間")
-                if in_range:
-                    self.logger.warning(f"但檢測到 {len(in_range)} 個在範圍內的候選，這可能是邏輯錯誤！")
                 self.last_hp_bar_info = None  # 清空血條信息
                 return None
             
