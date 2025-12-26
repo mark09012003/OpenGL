@@ -249,8 +249,9 @@ class MapleStoryAutoPrayerGUI:
         # 獲取血條信息和所有候選
         hp_bar_info = self.detection_manager.last_hp_bar_info
         all_candidates = self.detection_manager.all_candidates
-        min_threshold = 40
-        max_threshold = 43
+        # 從檢測管理器讀取配置的閾值
+        min_threshold = self.detection_manager.hp_bar_min_width
+        max_threshold = self.detection_manager.hp_bar_max_width
         result_text = ""
         
         if entered:
@@ -384,8 +385,9 @@ class MapleStoryAutoPrayerGUI:
                 self.hp_bar_overlay_window.withdraw()
                 return
             
-            min_threshold = 40
-            max_threshold = 43
+            # 從檢測管理器讀取配置的閾值
+            min_threshold = self.detection_manager.hp_bar_min_width
+            max_threshold = self.detection_manager.hp_bar_max_width
             
             # 創建Canvas來繪製箭頭
             canvas = tk.Canvas(
@@ -562,10 +564,10 @@ class MapleStoryAutoPrayerGUI:
                 if self.last_entered_free_market:
                     self.last_entered_free_market = False
                     
-                    # 移動到目標位置（固定為 250，容許誤差 ±20）
+                    # 移動到目標位置（使用配置的目標位置和容差）
                     if self.is_running:
-                        target_x = 240
-                        result = self.automation_manager.move_to_target_position(target_x, tolerance=20)
+                        target_x = self.automation_manager.exit_target_x
+                        result = self.automation_manager.move_to_target_position(target_x)
                         if not result:
                             # 移動失敗（可能是血條檢測失敗）
                             break

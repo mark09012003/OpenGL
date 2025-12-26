@@ -9,11 +9,39 @@ from typing import Optional, Tuple
 class DetectionManager:
     """圖像檢測管理器"""
     
-    def __init__(self, window_manager, logger=None):
+    def __init__(self, window_manager, config=None, logger=None):
         self.window_manager = window_manager
         self.logger = logger or logging.getLogger(__name__)
         self.last_hp_bar_info = None  # 保存最後一次檢測到的血條信息
         self.all_candidates = []  # 保存所有檢測到的候選（包括未達門檻的）
+        
+        # 從配置中讀取檢測參數
+        if config and "detection" in config:
+            detection_config = config["detection"]
+            self.hp_bar_y = int(detection_config.get("hp_bar_y", 445))
+            self.hp_bar_min_width = int(detection_config.get("hp_bar_min_width", 40))
+            self.hp_bar_max_width = int(detection_config.get("hp_bar_max_width", 43))
+            self.color_r_min = int(detection_config.get("color_r_min", 150))
+            self.color_r_max = int(detection_config.get("color_r_max", 255))
+            self.color_g_max = int(detection_config.get("color_g_max", 100))
+            self.color_b_max = int(detection_config.get("color_b_max", 100))
+            self.color_r_g_ratio = float(detection_config.get("color_r_g_ratio", 1.5))
+            self.color_r_b_ratio = float(detection_config.get("color_r_b_ratio", 1.5))
+            self.pixel_gap_tolerance = int(detection_config.get("pixel_gap_tolerance", 2))
+            self.character_y_offset = int(detection_config.get("character_y_offset", 15))
+        else:
+            # 預設值
+            self.hp_bar_y = 445
+            self.hp_bar_min_width = 40
+            self.hp_bar_max_width = 43
+            self.color_r_min = 150
+            self.color_r_max = 255
+            self.color_g_max = 100
+            self.color_b_max = 100
+            self.color_r_g_ratio = 1.5
+            self.color_r_b_ratio = 1.5
+            self.pixel_gap_tolerance = 2
+            self.character_y_offset = 15
     
     def detect_hp_bar_position(self) -> Optional[Tuple[float, float]]:
         """檢測角色頭頂上方的紅色血條位置，用於判斷人物位置（相對於視窗）"""
@@ -45,20 +73,20 @@ class DetectionManager:
             g_channel = img_array[:, :, 1]
             b_channel = img_array[:, :, 2]
             
-            # 定義紅色區間：血條應該是鮮紅色
-            red_mask = (r_channel >= 150) & (r_channel <= 255) & \
-                      (g_channel < 100) & (b_channel < 100) & \
-                      (r_channel > g_channel * 1.5) & (r_channel > b_channel * 1.5)
+            # 定義紅色區間：血條應該是鮮紅色（使用配置的顏色閾值）
+            red_mask = (r_channel >= self.color_r_min) & (r_channel <= self.color_r_max) & \
+                      (g_channel < self.color_g_max) & (b_channel < self.color_b_max) & \
+                      (r_channel > g_channel * self.color_r_g_ratio) & (r_channel > b_channel * self.color_r_b_ratio)
             
-            # 只在 y=445 這一行檢查血條
-            target_y = 445
+            # 使用配置的 Y 軸位置檢查血條
+            target_y = self.hp_bar_y
             
-            # 檢查 y=445 是否在視窗範圍內
+            # 檢查目標 Y 軸是否在視窗範圍內
             if target_y < 0 or target_y >= window_height:
                 self.logger.warning(f"目標Y座標 {target_y} 超出視窗範圍 (0-{window_height-1})")
                 return None
             
-            # 只在 y=445 這一行檢查紅色像素
+            # 只在配置的 Y 軸位置檢查紅色像素
             row_red_pixels = np.where(red_mask[target_y, :])[0]
             
             if len(row_red_pixels) == 0:
@@ -67,7 +95,7 @@ class DetectionManager:
                 self.all_candidates = []  # 清空候選列表
                 return None
             
-            # 找出 y=445 這一行中所有連續的紅色像素區間
+            # 找出目標 Y 軸位置這一行中所有連續的紅色像素區間
             y = target_y
             candidates = []
             
@@ -76,7 +104,7 @@ class DetectionManager:
                 end_x = row_red_pixels[0]
                 
                 for i in range(1, len(row_red_pixels)):
-                    if row_red_pixels[i] - end_x <= 2:  # 允許2像素間隔
+                    if row_red_pixels[i] - end_x <= self.pixel_gap_tolerance:  # 使用配置的像素間隔容差
                         end_x = row_red_pixels[i]
                     else:
                         # 找到一個連續的紅色區間，記錄它
@@ -109,9 +137,9 @@ class DetectionManager:
             self.all_candidates = candidates.copy()
             
             # 選擇最長的連續紅色區間（最可能是血條）
-            # 寬度範圍：40~43px
-            min_width_threshold = 40
-            max_width_threshold = 43
+            # 使用配置的寬度範圍
+            min_width_threshold = self.hp_bar_min_width
+            max_width_threshold = self.hp_bar_max_width
             best_candidate = None
             best_width = 0
             
@@ -129,7 +157,7 @@ class DetectionManager:
             
             # 角色位置判斷為連續紅色出現的最左邊
             character_x = best_candidate['x_start']  # 人物水平位置為連續紅色區間的最左邊
-            character_y = best_candidate['y'] + 15  # 人物位置在血條下方約15像素
+            character_y = best_candidate['y'] + self.character_y_offset  # 使用配置的人物位置偏移
             
             self.logger.info(f"檢測到血條 - 血條位置: ({best_candidate['x_start']:.0f}, {best_candidate['y']:.0f}), 寬度: {best_width}px, 人物位置: ({character_x:.0f}, {character_y:.0f})")
             
@@ -152,17 +180,17 @@ class DetectionManager:
             return None
     
     def check_free_market_entered(self) -> bool:
-        """檢查是否成功進入自由市場（檢測y=445是否有血條）"""
+        """檢查是否成功進入自由市場（檢測配置的Y軸位置是否有血條）"""
         try:
             # 使用血條檢測來判斷是否進入自由市場
-            # 如果能在y=445檢測到血條，說明角色在自由市場中
+            # 如果能在配置的Y軸位置檢測到血條，說明角色在自由市場中
             character_pos = self.detect_hp_bar_position()
             
             if character_pos is not None:
-                self.logger.info("檢測到血條（y=445），已進入自由市場")
+                self.logger.info(f"檢測到血條（y={self.hp_bar_y}），已進入自由市場")
                 return True
             else:
-                self.logger.info("未檢測到血條（y=445），未進入自由市場")
+                self.logger.info(f"未檢測到血條（y={self.hp_bar_y}），未進入自由市場")
                 return False
             
         except Exception as e:

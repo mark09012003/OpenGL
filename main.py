@@ -19,9 +19,12 @@ def main():
     
     # 創建管理器實例
     config_manager = ConfigManager(logger=logger)
+    # 載入配置
+    config = config_manager.load()
+    
     window_manager = WindowManager(logger=logger)
-    detection_manager = DetectionManager(window_manager, logger=logger)
-    automation_manager = AutomationManager(window_manager, detection_manager, logger=logger)
+    detection_manager = DetectionManager(window_manager, config=config, logger=logger)
+    automation_manager = AutomationManager(window_manager, detection_manager, config=config, logger=logger)
     
     # 創建GUI並整合所有管理器
     app = MapleStoryAutoPrayerGUI(
