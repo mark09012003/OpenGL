@@ -65,6 +65,10 @@ class AutomationManager:
         # 設定pyautogui安全模式
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 0.1
+        
+        # 跳過等待標誌
+        self.skip_wait = False
+        self.current_wait_remaining = None  # 當前剩餘等待時間（None表示沒有在等待）
     
     def send_key_press(self, key: str, skill_name: str = "") -> bool:
         """發送按鍵（按壓0.3秒後放開）"""
@@ -100,18 +104,69 @@ class AutomationManager:
             self.logger.error(f"發送按鍵失敗: {str(e)}")
             return False
     
-    def _sleep_with_check(self, duration: float, check_interval: float = None) -> bool:
+    def _sleep_with_check(self, duration: float, check_interval: float = None, update_countdown: bool = False) -> bool:
         """可中斷的sleep，返回False表示被中斷"""
         if check_interval is None:
             check_interval = self.sleep_check_interval
         elapsed = 0.0
+        
+        # 只有當 update_countdown=True 時才更新倒數時間（用於主要循環等待）
+        if update_countdown:
+            self.current_wait_remaining = duration  # 初始化剩餘時間
+            self.logger.info(f"開始循環等待倒數：{duration:.1f} 秒，current_wait_remaining={self.current_wait_remaining}")
+        
         while elapsed < duration:
             if not self.is_running:
+                if update_countdown:
+                    self.current_wait_remaining = None
                 return False
+            
+            # 計算本次 sleep 的時間
             sleep_time = min(check_interval, duration - elapsed)
-            time.sleep(sleep_time)
-            elapsed += sleep_time
+            
+            # 在 sleep 之前更新剩餘時間，讓 GUI 能及時看到
+            if update_countdown:
+                remaining = max(0.0, duration - elapsed)
+                self.current_wait_remaining = remaining
+                # 每5秒記錄一次，避免日誌過多
+                if int(elapsed) % 5 == 0:
+                    self.logger.debug(f"循環等待中，剩餘時間: {remaining:.1f} 秒")
+            
+            # 在 sleep 期間分段檢查，以便及時響應 skip_wait
+            sleep_chunks = max(1, int(sleep_time / 0.1))  # 每0.1秒檢查一次
+            chunk_duration = sleep_time / sleep_chunks
+            
+            for _ in range(sleep_chunks):
+                # 檢查是否要跳過等待
+                if self.skip_wait:
+                    self.skip_wait = False
+                    if update_countdown:
+                        self.current_wait_remaining = None
+                    self.logger.info("已跳過剩餘等待時間")
+                    return True
+                
+                if not self.is_running:
+                    if update_countdown:
+                        self.current_wait_remaining = None
+                    return False
+                
+                time.sleep(chunk_duration)
+                elapsed += chunk_duration
+                
+                # 更新剩餘時間
+                if update_countdown:
+                    remaining = max(0.0, duration - elapsed)
+                    self.current_wait_remaining = remaining
+        
+        if update_countdown:
+            self.current_wait_remaining = None  # 等待完成，清除倒數
+            self.logger.info("循環等待完成")
         return True
+    
+    def skip_current_wait(self):
+        """跳過當前等待時間"""
+        self.skip_wait = True
+        self.logger.info("請求跳過當前等待時間")
     
     def click_free_market_button(self) -> bool:
         """點擊自由市場按鈕"""
@@ -172,7 +227,7 @@ class AutomationManager:
                 if not self.is_running:
                     break
                 
-                # 檢測當前人物位置
+                # 檢測當前人物位置（只在需要移動時才檢測）
                 character_pos = self.detection_manager.detect_hp_bar_position()
                 
                 if character_pos is None:

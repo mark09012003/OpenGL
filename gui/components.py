@@ -140,6 +140,10 @@ def create_parameter_section(parent, app):
     ttk.Checkbutton(left_options, text="進入自由市場", variable=app.enter_fm_var,
                    style='TCheckbutton').pack(anchor="w", pady=Theme.PADDING_SMALL)
     
+    app.use_floating_window_var = tk.BooleanVar(value=True)
+    ttk.Checkbutton(left_options, text="使用懸浮視窗", variable=app.use_floating_window_var,
+                   style='TCheckbutton').pack(anchor="w", pady=Theme.PADDING_SMALL)
+    
     app.anti_detect_after_fm_var = tk.BooleanVar()
     ttk.Checkbutton(left_options, text="離開自由市場後防偵測", 
                    variable=app.anti_detect_after_fm_var, style='TCheckbutton').pack(anchor="w", pady=Theme.PADDING_SMALL)

@@ -31,6 +31,7 @@ class ConfigManager:
                 "fm_check_time": "3.0",
                 "debug_image": False,
                 "enter_fm": True,
+                "use_floating_window": True,
                 "move_direction": "left",
                 "fixed_move": False,
                 "anti_detect_after_fm": False,

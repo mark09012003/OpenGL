@@ -6,8 +6,8 @@
         "custom_skill1_enabled": true,
         "custom_skill1_key": "3",
         "angel_blessing": "2",
-        "custom_skill2_enabled": true,
-        "custom_skill2_key": "3"
+        "custom_skill2_enabled": false,
+        "custom_skill2_key": "f4"
     },
     "parameters": {
         "fm_wait": "230",
@@ -17,8 +17,9 @@
         "right_move_time": "0.1",
         "fm_check_time": "3.0",
         "auto_stop_enabled": false,
-        "auto_stop_time": "0",
+        "auto_stop_time": "11:26",
         "enter_fm": true,
+        "use_floating_window": true,
         "move_direction": "left",
         "fixed_move": false,
         "anti_detect_after_fm": true
@@ -26,7 +27,7 @@
     "detection": {
         "hp_bar_y": 445,
         "hp_bar_min_width": 40,
-        "hp_bar_max_width": 43,
+        "hp_bar_max_width": 45,
         "color_r_min": 150,
         "color_r_max": 255,
         "color_g_max": 100,
@@ -37,7 +38,7 @@
         "character_y_offset": 15
     },
     "automation": {
-        "exit_target_x": 250,
+        "exit_target_x": 245,
         "fm_button_x": 980,
         "fm_button_y": 720,
         "key_press_wait": 0.2,

@@ -57,6 +57,18 @@ class MapleStoryAutoPrayerGUI:
         self.overlay_update_thread = None
         self.save_timer = None
         
+        # 懸浮視窗狀態
+        self.floating_window = None
+        self.countdown_label = None
+        self.next_cycle_label = None
+        self.countdown_update_job = None
+        self.is_floating = False
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+        self.drag_window_x = 0
+        self.drag_window_y = 0
+        self.is_dragging = False
+        
         # 設定pyautogui
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 0.1
@@ -66,6 +78,9 @@ class MapleStoryAutoPrayerGUI:
         
         # 載入配置
         self.load_config()
+        
+        # 綁定所有變數的自動保存
+        self.setup_auto_save_bindings()
         
         # 綁定關閉事件
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -436,6 +451,406 @@ class MapleStoryAutoPrayerGUI:
         except Exception as e:
             self.logger.error(f"更新懸浮框內容失敗: {str(e)}")
     
+    def convert_to_floating_window(self):
+        """創建簡化的半透明懸浮視窗，只顯示倒數時間和結束按鈕"""
+        try:
+            # 隱藏主視窗
+            self.root.withdraw()
+            
+            # 獲取遊戲視窗位置
+            game_rect = self.window_manager.get_window_rect()
+            if not game_rect:
+                self.logger.warning("無法獲取遊戲視窗位置，使用預設位置")
+                game_x, game_y = 100, 100
+                game_width, game_height = 1295, 759
+            else:
+                game_x, game_y, game_width, game_height = game_rect
+            
+            # 創建懸浮視窗
+            self.floating_window = tk.Toplevel()
+            self.floating_window.title("自動化控制")
+            self.floating_window.overrideredirect(True)  # 無邊框
+            self.floating_window.attributes('-topmost', True)  # 置頂
+            self.floating_window.attributes('-alpha', 0.85)  # 半透明
+            self.floating_window.configure(bg=Theme.BACKGROUND_PRIMARY)
+            
+            # 計算懸浮視窗位置（放在遊戲視窗右上角）
+            # 先設置一個初始大小，之後會根據內容自動調整
+            initial_width = 220
+            initial_height = 160
+            floating_x = game_x + game_width - initial_width - 10
+            floating_y = game_y + 10
+            
+            # 確保視窗不會超出螢幕範圍
+            screen_width = self.floating_window.winfo_screenwidth()
+            screen_height = self.floating_window.winfo_screenheight()
+            if floating_x + initial_width > screen_width:
+                floating_x = screen_width - initial_width - 10
+            if floating_y + initial_height > screen_height:
+                floating_y = screen_height - initial_height - 10
+            if floating_x < 0:
+                floating_x = 10
+            if floating_y < 0:
+                floating_y = 10
+            
+            self.floating_window.geometry(f"{initial_width}x{initial_height}+{floating_x}+{floating_y}")
+            
+            # 綁定拖移事件到整個視窗
+            self.floating_window.bind('<Button-1>', self._on_floating_window_drag_start)
+            self.floating_window.bind('<B1-Motion>', self._on_floating_window_drag)
+            self.floating_window.bind('<ButtonRelease-1>', self._on_floating_window_drag_stop)
+            
+            # 創建內容框架（使用普通Frame確保可見）
+            content_frame = tk.Frame(
+                self.floating_window,
+                bg=Theme.BACKGROUND_PRIMARY,
+                highlightbackground=Theme.BORDER_PRIMARY,
+                highlightthickness=1
+            )
+            content_frame.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # 綁定拖移事件到內容框架（讓整個區域可拖移）
+            content_frame.bind('<Button-1>', self._on_floating_window_drag_start)
+            content_frame.bind('<B1-Motion>', self._on_floating_window_drag)
+            content_frame.bind('<ButtonRelease-1>', self._on_floating_window_drag_stop)
+            
+            # 倒數時間標籤（只在啟用定時停止時顯示剩餘時間）
+            self.countdown_label = tk.Label(
+                content_frame,
+                text="00:00:00",
+                bg=Theme.BACKGROUND_PRIMARY,
+                fg=Theme.TEXT_PRIMARY,
+                font=Theme.get_font_config(Theme.FONT_SIZE_NORMAL, 'bold'),
+                width=12,
+                anchor='center'
+            )
+            # 初始狀態：根據是否啟用定時停止來決定是否顯示
+            if hasattr(self, 'auto_stop_enabled_var') and self.auto_stop_enabled_var.get():
+                self.countdown_label.pack(pady=(5, 3))
+            else:
+                self.countdown_label.pack_forget()  # 隱藏標籤
+            
+            # 綁定拖移事件到標籤（讓標籤區域也可拖移）
+            self.countdown_label.bind('<Button-1>', self._on_floating_window_drag_start)
+            self.countdown_label.bind('<B1-Motion>', self._on_floating_window_drag)
+            self.countdown_label.bind('<ButtonRelease-1>', self._on_floating_window_drag_stop)
+            
+            # 下次循環倒數標籤
+            cycle_label_title = tk.Label(
+                content_frame,
+                text="下次循環:",
+                bg=Theme.BACKGROUND_PRIMARY,
+                fg=Theme.TEXT_SECONDARY,
+                font=Theme.get_font_config(Theme.FONT_SIZE_SMALL, 'normal'),
+                anchor='center'
+            )
+            cycle_label_title.pack(pady=(0, 2))
+            
+            self.next_cycle_label = tk.Label(
+                content_frame,
+                text="--:--",
+                bg=Theme.BACKGROUND_PRIMARY,
+                fg=Theme.TEXT_HIGHLIGHT,
+                font=Theme.get_font_config(Theme.FONT_SIZE_NORMAL, 'bold'),
+                width=10,
+                anchor='center'
+            )
+            self.next_cycle_label.pack(pady=(0, 5))
+            
+            # 綁定拖移事件到標籤（讓標籤區域也可拖移）
+            self.next_cycle_label.bind('<Button-1>', self._on_floating_window_drag_start)
+            self.next_cycle_label.bind('<B1-Motion>', self._on_floating_window_drag)
+            self.next_cycle_label.bind('<ButtonRelease-1>', self._on_floating_window_drag_stop)
+            
+            # 按鈕框架
+            button_frame = tk.Frame(content_frame, bg=Theme.BACKGROUND_PRIMARY)
+            button_frame.pack(fill="x", padx=5, pady=(0, 5))
+            
+            # 跳過等待按鈕
+            skip_btn = tk.Button(
+                button_frame,
+                text="跳過",
+                command=self.skip_current_wait,
+                bg=Theme.BUTTON_SECONDARY,
+                fg=Theme.BUTTON_SECONDARY_TEXT,
+                activebackground=Theme.BUTTON_SECONDARY_HOVER,
+                activeforeground=Theme.BUTTON_SECONDARY_TEXT,
+                font=Theme.get_font_config(Theme.FONT_SIZE_SMALL, 'bold'),
+                relief='flat',
+                cursor='hand2',
+                bd=0,
+                highlightthickness=0,
+                width=8,
+                height=1
+            )
+            skip_btn.pack(side="left", padx=(0, 5), fill="x", expand=True)
+            
+            # 結束按鈕
+            stop_btn = tk.Button(
+                button_frame,
+                text="結束",
+                command=self.stop_automation,
+                bg=Theme.BUTTON_DANGER,
+                fg=Theme.BUTTON_DANGER_TEXT,
+                activebackground=Theme.BUTTON_DANGER_HOVER,
+                activeforeground=Theme.BUTTON_DANGER_TEXT,
+                font=Theme.get_font_config(Theme.FONT_SIZE_SMALL, 'bold'),
+                relief='flat',
+                cursor='hand2',
+                bd=0,
+                highlightthickness=0,
+                width=8,
+                height=1
+            )
+            stop_btn.pack(side="left", padx=(5, 0), fill="x", expand=True)
+            
+            # 綁定關閉事件
+            self.floating_window.protocol("WM_DELETE_WINDOW", self.stop_automation)
+            
+            # 更新視窗大小以適應內容
+            self.floating_window.update_idletasks()
+            actual_width = content_frame.winfo_reqwidth() + 20  # 加上邊距
+            actual_height = content_frame.winfo_reqheight() + 20  # 加上邊距
+            
+            # 確保視窗不會超出螢幕範圍
+            if floating_x + actual_width > screen_width:
+                floating_x = screen_width - actual_width - 10
+            if floating_y + actual_height > screen_height:
+                floating_y = screen_height - actual_height - 10
+            if floating_x < 0:
+                floating_x = 10
+            if floating_y < 0:
+                floating_y = 10
+            
+            # 設置實際大小
+            self.floating_window.geometry(f"{actual_width}x{actual_height}+{floating_x}+{floating_y}")
+            
+            # 開始更新倒數時間
+            self.update_countdown()
+            
+            self.is_floating = True
+            self.logger.info(f"已創建懸浮視窗，位置: ({floating_x}, {floating_y}), 大小: {actual_width}x{actual_height}")
+            
+        except Exception as e:
+            self.logger.error(f"創建懸浮視窗失敗: {str(e)}")
+            # 如果失敗，恢復主視窗
+            self.root.deiconify()
+    
+    def _on_floating_window_drag_start(self, event):
+        """開始拖移懸浮視窗"""
+        if self.floating_window:
+            # 檢查是否點擊在按鈕上
+            widget = event.widget
+            # 如果點擊的是按鈕，不開始拖移
+            if isinstance(widget, tk.Button):
+                return
+            
+            self.drag_start_x = event.x_root
+            self.drag_start_y = event.y_root
+            self.drag_window_x = self.floating_window.winfo_x()
+            self.drag_window_y = self.floating_window.winfo_y()
+            self.is_dragging = False  # 標記為未開始拖移（需要移動一定距離才開始）
+    
+    def _on_floating_window_drag(self, event):
+        """拖移懸浮視窗"""
+        if not self.floating_window:
+            return
+        
+        # 檢查是否點擊在按鈕上
+        widget = event.widget
+        if isinstance(widget, tk.Button):
+            return
+        
+        # 計算移動距離
+        dx = event.x_root - self.drag_start_x
+        dy = event.y_root - self.drag_start_y
+        
+        # 如果移動距離超過5像素，才開始拖移（避免點擊觸發拖移）
+        if not self.is_dragging and (abs(dx) > 5 or abs(dy) > 5):
+            self.is_dragging = True
+        
+        if self.is_dragging:
+            # 計算新位置
+            x = self.drag_window_x + dx
+            y = self.drag_window_y + dy
+            
+            # 確保視窗不會超出螢幕範圍
+            screen_width = self.floating_window.winfo_screenwidth()
+            screen_height = self.floating_window.winfo_screenheight()
+            window_width = self.floating_window.winfo_width()
+            window_height = self.floating_window.winfo_height()
+            
+            # 限制在螢幕範圍內
+            x = max(0, min(x, screen_width - window_width))
+            y = max(0, min(y, screen_height - window_height))
+            
+            # 更新視窗位置
+            self.floating_window.geometry(f"+{x}+{y}")
+    
+    def _on_floating_window_drag_stop(self, event):
+        """停止拖移懸浮視窗"""
+        self.is_dragging = False
+    
+    
+    def update_countdown(self):
+        """更新倒數時間顯示"""
+        if not self.is_floating or not self.floating_window:
+            return
+        
+        # 調試：確認方法被調用
+        if not hasattr(self, '_update_countdown_called'):
+            self._update_countdown_called = 0
+        self._update_countdown_called += 1
+        if self._update_countdown_called % 10 == 0:  # 每10次記錄一次
+            self.logger.debug(f"update_countdown 被調用 {self._update_countdown_called} 次")
+        
+        try:
+            # 更新定時停止倒數（只在啟用定時停止時顯示）
+            if self.countdown_label:
+                # 檢查是否啟用定時停止
+                if hasattr(self, 'auto_stop_enabled_var') and self.auto_stop_enabled_var.get():
+                    # 啟用定時停止，顯示剩餘時間
+                    if not self.countdown_label.winfo_viewable():
+                        self.countdown_label.pack(pady=(5, 3))  # 顯示標籤
+                    
+                    # 計算剩餘時間
+                    if hasattr(self, 'auto_stop_timer') and self.auto_stop_timer and self.start_time:
+                        time_str = self.auto_stop_time_var.get() if hasattr(self, 'auto_stop_time_var') else "23:59"
+                        try:
+                            hour, minute = map(int, time_str.split(':'))
+                            now = datetime.now()
+                            target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                            if target_time <= now:
+                                target_time = target_time + timedelta(days=1)
+                            
+                            remaining = target_time - now
+                            total_seconds = int(remaining.total_seconds())
+                            hours = total_seconds // 3600
+                            minutes = (total_seconds % 3600) // 60
+                            seconds = total_seconds % 60
+                            countdown_text = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                        except:
+                            countdown_text = "--:--:--"
+                    else:
+                        countdown_text = "--:--:--"
+                    
+                    # 只有當文本改變時才更新，避免不必要的重繪
+                    old_text = self.countdown_label.cget("text")
+                    if old_text != countdown_text:
+                        self.countdown_label.config(text=countdown_text)
+                        # 強制立即更新標籤和視窗
+                        self.countdown_label.update_idletasks()
+                        self.floating_window.update_idletasks()
+                else:
+                    # 沒有啟用定時停止，隱藏標籤
+                    if self.countdown_label.winfo_viewable():
+                        self.countdown_label.pack_forget()
+            
+            # 更新下次循環倒數時間
+            if self.next_cycle_label:
+                try:
+                    if hasattr(self.automation_manager, 'current_wait_remaining'):
+                        remaining = self.automation_manager.current_wait_remaining
+                        # 調試：記錄剩餘時間值
+                        if remaining is not None:
+                            self.logger.debug(f"循環倒數剩餘時間: {remaining:.1f} 秒")
+                        
+                        if remaining is not None and remaining > 0:
+                            minutes = int(remaining // 60)
+                            seconds = int(remaining % 60)
+                            cycle_text = f"{minutes:02d}:{seconds:02d}"
+                            # 調試：記錄顯示文本
+                            self.logger.debug(f"循環倒數顯示: {cycle_text}")
+                        else:
+                            # 沒有在等待，顯示 "--:--"
+                            cycle_text = "--:--"
+                    else:
+                        cycle_text = "--:--"
+                        self.logger.debug("automation_manager 沒有 current_wait_remaining 屬性")
+                    
+                    # 強制更新標籤
+                    old_text = self.next_cycle_label.cget("text")
+                    if old_text != cycle_text:  # 只有當文本改變時才更新
+                        self.next_cycle_label.config(text=cycle_text)
+                        # 強制立即更新標籤和視窗
+                        self.next_cycle_label.update_idletasks()
+                        self.floating_window.update_idletasks()
+                except Exception as e:
+                    self.logger.error(f"更新循環倒數失敗: {str(e)}", exc_info=True)
+                    cycle_text = "--:--"
+                    if self.next_cycle_label:
+                        self.next_cycle_label.config(text=cycle_text)
+            
+            # 每秒更新一次
+            if self.is_floating and self.floating_window:
+                try:
+                    # 取消之前的更新任務（如果存在）
+                    if self.countdown_update_job:
+                        self.floating_window.after_cancel(self.countdown_update_job)
+                    # 安排下一次更新（確保持續更新）
+                    self.countdown_update_job = self.floating_window.after(1000, self.update_countdown)
+                except Exception as e:
+                    self.logger.error(f"安排倒數更新失敗: {str(e)}")
+                    # 即使出錯也要繼續更新
+                    try:
+                        self.countdown_update_job = self.floating_window.after(1000, self.update_countdown)
+                    except:
+                        pass
+        except Exception as e:
+            self.logger.error(f"更新倒數時間失敗: {str(e)}")
+            # 即使出錯也要繼續更新
+            if self.is_floating and self.floating_window:
+                try:
+                    if self.countdown_update_job:
+                        self.floating_window.after_cancel(self.countdown_update_job)
+                    self.countdown_update_job = self.floating_window.after(1000, self.update_countdown)
+                except:
+                    pass
+    
+    def skip_current_wait(self):
+        """跳過當前等待時間"""
+        if hasattr(self.automation_manager, 'skip_current_wait'):
+            self.automation_manager.skip_current_wait()
+            self.logger.info("已請求跳過當前等待時間")
+    
+    def restore_normal_window(self):
+        """恢復正常視窗狀態"""
+        if not self.is_floating:
+            return
+        
+        try:
+            # 停止倒數更新
+            if self.countdown_update_job and self.floating_window:
+                self.floating_window.after_cancel(self.countdown_update_job)
+                self.countdown_update_job = None
+            
+            # 關閉懸浮視窗
+            if self.floating_window:
+                self.floating_window.destroy()
+                self.floating_window = None
+            
+            # 顯示主視窗
+            self.root.deiconify()
+            self.root.lift()
+            self.root.focus_force()
+            
+            self.is_floating = False
+            self.countdown_label = None
+            self.next_cycle_label = None
+            
+            # 取消保存定時器（如果存在）
+            if self.save_timer:
+                try:
+                    self.root.after_cancel(self.save_timer)
+                except:
+                    pass
+                self.save_timer = None
+            
+            self.logger.info("已恢復正常視窗狀態")
+            
+        except Exception as e:
+            self.logger.error(f"恢復正常視窗失敗: {str(e)}")
+    
     def show_faq(self):
         """顯示幫助"""
         faq_text = """使用說明：
@@ -475,9 +890,25 @@ class MapleStoryAutoPrayerGUI:
         self.is_running = True
         self.automation_manager.is_running = True
         self.automation_manager.on_hp_bar_detection_failed = self.on_hp_bar_detection_failed
-        self.start_btn.config(state="disabled")
-        self.stop_btn.config(state="normal")
+        
+        # 重置上次進入自由市場的標誌，確保開始時直接施放技能
+        self.last_entered_free_market = False
+        
+        # 更新按鈕狀態（如果不在懸浮視窗模式）
+        if not self.is_floating:
+            self.start_btn.config(state="disabled")
+            self.stop_btn.config(state="normal")
+        
         self.logger.info("開始自動化流程")
+        
+        # 根據選項決定是否轉換為半透明懸浮視窗
+        if hasattr(self, 'use_floating_window_var') and self.use_floating_window_var.get():
+            # 使用懸浮視窗：轉換為半透明懸浮視窗，隱藏主視窗
+            self.convert_to_floating_window()
+        else:
+            # 不使用懸浮視窗：保持主視窗顯示，讓用戶可以通過主視窗控制
+            # 不隱藏主視窗，確保用戶可以點擊停止按鈕
+            self.logger.info("未使用懸浮視窗，保持主視窗顯示")
         
         # 設置定時停止
         self.start_time = time.time()
@@ -493,8 +924,37 @@ class MapleStoryAutoPrayerGUI:
         self.show_overlay = False
         self.cancel_auto_stop()
         self.logger.info("停止自動化流程")
-        self.stop_btn.config(state="disabled")
-        self.start_btn.config(state="normal")
+        
+        # 更新按鈕狀態（如果不在懸浮視窗模式）
+        if not self.is_floating:
+            self.stop_btn.config(state="disabled")
+            self.start_btn.config(state="normal")
+        
+        # 取消保存定時器（如果存在）
+        if self.save_timer:
+            try:
+                if self.is_floating and self.floating_window:
+                    self.floating_window.after_cancel(self.save_timer)
+                else:
+                    self.root.after_cancel(self.save_timer)
+            except:
+                pass
+            self.save_timer = None
+        
+        # 恢復正常視窗（如果使用了懸浮視窗）
+        if self.is_floating:
+            self.restore_normal_window()
+        else:
+            # 如果沒有使用懸浮視窗，主視窗應該一直顯示，不需要恢復
+            # 但確保主視窗在最前面，方便用戶操作
+            self.root.lift()
+            self.root.focus_force()
+        
+        # 最後保存一次配置
+        try:
+            self.save_config()
+        except Exception as e:
+            self.logger.error(f"最後保存配置失敗: {str(e)}")
     
     def setup_auto_stop(self):
         """設置定時停止（根據指定時間點）"""
@@ -553,8 +1013,14 @@ class MapleStoryAutoPrayerGUI:
     def on_hp_bar_detection_failed(self):
         """血條檢測失敗回調"""
         self.logger.error("血條檢測失敗，終止程式")
-        self.root.after(0, lambda: messagebox.showerror("錯誤", "無法檢測到血條，程式已終止\n請檢查遊戲視窗是否正確顯示"))
-        self.root.after(0, self.stop_automation)
+        
+        # 如果主視窗被隱藏（懸浮視窗模式），使用懸浮視窗來顯示消息和停止
+        if self.is_floating and self.floating_window:
+            self.floating_window.after(0, lambda: messagebox.showerror("錯誤", "無法檢測到血條，程式已終止\n請檢查遊戲視窗是否正確顯示"))
+            self.floating_window.after(0, self.stop_automation)
+        else:
+            self.root.after(0, lambda: messagebox.showerror("錯誤", "無法檢測到血條，程式已終止\n請檢查遊戲視窗是否正確顯示"))
+            self.root.after(0, self.stop_automation)
     
     def automation_loop(self):
         """自動化循環 - 可隨時終止"""
@@ -635,7 +1101,15 @@ class MapleStoryAutoPrayerGUI:
                     base_interval = float(self.fm_wait_var.get()) if hasattr(self, 'fm_wait_var') else 230.0
                     wait_interval = self.automation_manager.get_skill_interval(base_interval)
                     self.logger.info(f"等待 {wait_interval:.1f} 秒後進行下一輪循環")
-                    if not self.automation_manager._sleep_with_check(wait_interval):
+                    # 使用 update_countdown=True 來更新懸浮視窗的倒數時間
+                    # 在開始等待前，立即觸發一次 GUI 更新，確保倒數能立即顯示
+                    if self.is_floating and self.floating_window:
+                        # 立即更新一次，然後確保更新循環繼續運行
+                        self.floating_window.after(0, self.update_countdown)
+                    # 確保更新任務正在運行
+                    if not self.countdown_update_job:
+                        self.countdown_update_job = self.floating_window.after(1000, self.update_countdown)
+                    if not self.automation_manager._sleep_with_check(wait_interval, update_countdown=True):
                         break
                         
         except Exception as e:
@@ -646,41 +1120,106 @@ class MapleStoryAutoPrayerGUI:
             self.root.after(0, lambda: self.start_btn.config(state="normal"))
             self.logger.info("自動化循環已結束")
     
+    def setup_auto_save_bindings(self):
+        """為所有變數綁定自動保存"""
+        try:
+            # 定義需要綁定自動保存的變數列表
+            string_vars = [
+                'window_var', 'prayer_key_var', 'angel_blessing_var',
+                'custom_skill1_key_var', 'custom_skill2_key_var',
+                'blessing_interval_var', 'fm_wait_var', 'fm_check_time_var',
+                'auto_stop_time_var', 'target_width_var', 'target_height_var',
+                'left_move_time_var', 'right_move_time_var', 'move_direction_var'
+            ]
+            
+            boolean_vars = [
+                'custom_skill1_var', 'custom_skill2_var',
+                'auto_stop_enabled_var', 'enter_fm_var',
+                'use_floating_window_var', 'anti_detect_after_fm_var', 'fixed_move_var'
+            ]
+            
+            # 為所有 StringVar 綁定 trace
+            for var_name in string_vars:
+                if hasattr(self, var_name):
+                    var = getattr(self, var_name)
+                    var.trace_add('write', lambda *args, vn=var_name: self.auto_save_config())
+            
+            # 為所有 BooleanVar 綁定 trace
+            for var_name in boolean_vars:
+                if hasattr(self, var_name):
+                    var = getattr(self, var_name)
+                    var.trace_add('write', lambda *args, vn=var_name: self.auto_save_config())
+            
+            self.logger.info("已為所有變數綁定自動保存")
+        except Exception as e:
+            self.logger.error(f"綁定自動保存失敗: {str(e)}")
+    
     def auto_save_config(self):
         """自動保存配置"""
+        # 取消之前的定時器
         if self.save_timer:
-            self.root.after_cancel(self.save_timer)
-        self.save_timer = self.root.after(1000, self.save_config)
+            # 根據當前模式選擇正確的視窗來取消定時器
+            if self.is_floating and self.floating_window:
+                try:
+                    self.floating_window.after_cancel(self.save_timer)
+                except:
+                    pass
+            else:
+                try:
+                    self.root.after_cancel(self.save_timer)
+                except:
+                    pass
+            self.save_timer = None
+        
+        # 根據當前模式選擇正確的視窗來設置新的定時器
+        if self.is_floating and self.floating_window:
+            self.save_timer = self.floating_window.after(1000, self.save_config)
+        else:
+            self.save_timer = self.root.after(1000, self.save_config)
     
     def save_config(self):
         """保存配置"""
-        config_data = {
-            "window": self.window_var.get() if hasattr(self, 'window_var') else "",
-            "skills": {
-                "prayer_key": self.prayer_key_var.get() if hasattr(self, 'prayer_key_var') else "f1",
-                "blessing_interval": self.blessing_interval_var.get() if hasattr(self, 'blessing_interval_var') else "0.5",
-                "custom_skill1_enabled": self.custom_skill1_var.get() if hasattr(self, 'custom_skill1_var') else False,
-                "custom_skill1_key": self.custom_skill1_key_var.get() if hasattr(self, 'custom_skill1_key_var') else "f3",
-                "angel_blessing": self.angel_blessing_var.get() if hasattr(self, 'angel_blessing_var') else "f2",
-                "custom_skill2_enabled": self.custom_skill2_var.get() if hasattr(self, 'custom_skill2_var') else False,
-                "custom_skill2_key": self.custom_skill2_key_var.get() if hasattr(self, 'custom_skill2_key_var') else "f4",
-            },
-            "parameters": {
-                "fm_wait": self.fm_wait_var.get() if hasattr(self, 'fm_wait_var') else "230",
-                "target_width": self.target_width_var.get() if hasattr(self, 'target_width_var') else "1295",
-                "target_height": self.target_height_var.get() if hasattr(self, 'target_height_var') else "759",
-                "left_move_time": self.left_move_time_var.get() if hasattr(self, 'left_move_time_var') else "0.1",
-                "right_move_time": self.right_move_time_var.get() if hasattr(self, 'right_move_time_var') else "0.1",
-                "fm_check_time": self.fm_check_time_var.get() if hasattr(self, 'fm_check_time_var') else "3.0",
-                "auto_stop_enabled": self.auto_stop_enabled_var.get() if hasattr(self, 'auto_stop_enabled_var') else False,
-                "auto_stop_time": self.auto_stop_time_var.get() if hasattr(self, 'auto_stop_time_var') else "23:59",
-                "enter_fm": self.enter_fm_var.get() if hasattr(self, 'enter_fm_var') else True,
-                "move_direction": self.move_direction_var.get() if hasattr(self, 'move_direction_var') else "left",
-                "fixed_move": self.fixed_move_var.get() if hasattr(self, 'fixed_move_var') else False,
-                "anti_detect_after_fm": self.anti_detect_after_fm_var.get() if hasattr(self, 'anti_detect_after_fm_var') else False,
+        try:
+            # 先載入現有配置，保留 detection 和 automation 區塊
+            existing_config = self.config_manager.load()
+            
+            config_data = {
+                "window": self.window_var.get() if hasattr(self, 'window_var') else "",
+                "skills": {
+                    "prayer_key": self.prayer_key_var.get() if hasattr(self, 'prayer_key_var') else "f1",
+                    "blessing_interval": self.blessing_interval_var.get() if hasattr(self, 'blessing_interval_var') else "0.5",
+                    "custom_skill1_enabled": self.custom_skill1_var.get() if hasattr(self, 'custom_skill1_var') else False,
+                    "custom_skill1_key": self.custom_skill1_key_var.get() if hasattr(self, 'custom_skill1_key_var') else "f3",
+                    "angel_blessing": self.angel_blessing_var.get() if hasattr(self, 'angel_blessing_var') else "f2",
+                    "custom_skill2_enabled": self.custom_skill2_var.get() if hasattr(self, 'custom_skill2_var') else False,
+                    "custom_skill2_key": self.custom_skill2_key_var.get() if hasattr(self, 'custom_skill2_key_var') else "f4",
+                },
+                "parameters": {
+                    "fm_wait": self.fm_wait_var.get() if hasattr(self, 'fm_wait_var') else "230",
+                    "target_width": self.target_width_var.get() if hasattr(self, 'target_width_var') else "1295",
+                    "target_height": self.target_height_var.get() if hasattr(self, 'target_height_var') else "759",
+                    "left_move_time": self.left_move_time_var.get() if hasattr(self, 'left_move_time_var') else "0.1",
+                    "right_move_time": self.right_move_time_var.get() if hasattr(self, 'right_move_time_var') else "0.1",
+                    "fm_check_time": self.fm_check_time_var.get() if hasattr(self, 'fm_check_time_var') else "3.0",
+                    "auto_stop_enabled": self.auto_stop_enabled_var.get() if hasattr(self, 'auto_stop_enabled_var') else False,
+                    "auto_stop_time": self.auto_stop_time_var.get() if hasattr(self, 'auto_stop_time_var') else "23:59",
+                    "enter_fm": self.enter_fm_var.get() if hasattr(self, 'enter_fm_var') else True,
+                    "use_floating_window": self.use_floating_window_var.get() if hasattr(self, 'use_floating_window_var') else True,
+                    "move_direction": self.move_direction_var.get() if hasattr(self, 'move_direction_var') else "left",
+                    "fixed_move": self.fixed_move_var.get() if hasattr(self, 'fixed_move_var') else False,
+                    "anti_detect_after_fm": self.anti_detect_after_fm_var.get() if hasattr(self, 'anti_detect_after_fm_var') else False,
+                }
             }
-        }
-        self.config_manager.save(config_data)
+            
+            # 保留現有的 detection 和 automation 區塊（如果存在）
+            if "detection" in existing_config:
+                config_data["detection"] = existing_config["detection"]
+            if "automation" in existing_config:
+                config_data["automation"] = existing_config["automation"]
+            
+            self.config_manager.save(config_data)
+        except Exception as e:
+            self.logger.error(f"保存配置失敗: {str(e)}")
     
     def load_config(self):
         """載入配置"""
@@ -727,6 +1266,8 @@ class MapleStoryAutoPrayerGUI:
             
             if "enter_fm" in params and hasattr(self, 'enter_fm_var'):
                 self.enter_fm_var.set(params["enter_fm"])
+            if "use_floating_window" in params and hasattr(self, 'use_floating_window_var'):
+                self.use_floating_window_var.set(params["use_floating_window"])
             if "move_direction" in params and hasattr(self, 'move_direction_var'):
                 self.move_direction_var.set(params["move_direction"])
             if "fixed_move" in params and hasattr(self, 'fixed_move_var'):
@@ -746,6 +1287,10 @@ class MapleStoryAutoPrayerGUI:
         self.is_running = False
         self.automation_manager.is_running = False
         self.show_overlay = False
+        
+        # 恢復正常視窗狀態
+        self.restore_normal_window()
+        
         if self.overlay_window:
             try:
                 self.overlay_window.destroy()
