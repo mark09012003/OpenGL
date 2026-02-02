@@ -165,6 +165,7 @@ class DetectionManager:
             best_x_start = float('inf')  # 用於找最左邊的候選
             
             # 過濾候選：只考慮寬度在範圍內的候選，並標記離開位置附近的候選為低優先級
+            # 但如果候選接近上次位置（在容差範圍內），則不應該標記為低優先級（因為這是自己的角色）
             valid_candidates = []
             low_priority_candidates = []  # 離開位置附近的候選（低優先級）
             
@@ -174,9 +175,20 @@ class DetectionManager:
                 # 只考慮寬度在範圍內的區間
                 if min_width_threshold <= width <= max_width_threshold:
                     # 如果提供了排除的X範圍，標記該範圍內的候選為低優先級
+                    # 但如果候選接近上次位置（在容差範圍內），則不應該標記為低優先級（因為這是自己的角色）
                     if exclude_x_range is not None:
                         exclude_x_min, exclude_x_max = exclude_x_range
                         if exclude_x_min <= x_start <= exclude_x_max:
+                            # 如果候選接近上次位置（在容差範圍內），不標記為低優先級（這是自己的角色）
+                            if self.last_character_x is not None:
+                                distance = abs(x_start - self.last_character_x)
+                                if distance <= self.character_x_tolerance:
+                                    # 接近上次位置，不標記為低優先級（這是自己的角色）
+                                    self.logger.debug(f"候選血條在排除範圍內但接近上次位置，不標記為低優先級: x={x_start:.0f} (上次位置: {self.last_character_x:.0f}, 距離: {distance:.0f}px)")
+                                    valid_candidates.append(candidate)
+                                    continue
+                            
+                            # 標記為低優先級
                             self.logger.debug(f"標記離開位置附近的候選血條為低優先級: x={x_start:.0f} (排除範圍: {exclude_x_min:.0f}~{exclude_x_max:.0f})")
                             low_priority_candidates.append(candidate)
                             continue
@@ -210,16 +222,84 @@ class DetectionManager:
                     best_candidate = closest_candidate
                     self.logger.debug(f"選擇與上一次位置最接近的候選 (距離: {closest_distance:.0f}px, 上次位置: {self.last_character_x:.0f})")
                 else:
-                    # 沒有接近的候選，選擇最左邊的
+                    # 沒有接近的候選，優先選擇位置變化最小的候選（而不是最左邊的）
+                    # 這樣可以避免選擇到完全不相關的血條（如其他玩家的血條）
+                    closest_candidate = None
+                    closest_distance = float('inf')
+                    
                     for candidate in valid_candidates:
                         x_start = candidate['x_start']
-                        if x_start < best_x_start:
-                            best_x_start = x_start
-                            best_candidate = candidate
+                        distance = abs(x_start - self.last_character_x)
+                        if distance < closest_distance:
+                            closest_distance = distance
+                            closest_candidate = candidate
                     
-                    if best_candidate is not None:
-                        position_diff = abs(best_candidate['x_start'] - self.last_character_x)
-                        self.logger.warning(f"沒有找到接近的候選，選擇最左邊的候選 (位置變化: {position_diff:.0f}px > {self.character_x_tolerance}px，上次位置: {self.last_character_x:.0f})")
+                    if closest_candidate is not None:
+                        # 如果位置變化過大（超過容差的2倍），可能是檢測錯誤
+                        # 但如果候選在排除範圍內或附近（可能是自己的角色在離開位置附近），則允許較大的位置變化
+                        is_in_exclude_range = False
+                        is_near_exclude_range = False
+                        if exclude_x_range is not None:
+                            exclude_x_min, exclude_x_max = exclude_x_range
+                            candidate_x = closest_candidate['x_start']
+                            # 檢查候選是否在排除範圍內
+                            if exclude_x_min <= candidate_x <= exclude_x_max:
+                                is_in_exclude_range = True
+                            # 檢查候選是否在排除範圍附近（擴展50像素範圍，用於判斷角色正在移動到離開位置）
+                            elif (exclude_x_min - 50) <= candidate_x <= (exclude_x_max + 50):
+                                is_near_exclude_range = True
+                        
+                        # 如果上次位置也在排除範圍內或附近，且當前候選也在排除範圍內或附近，可能是自己的角色在移動
+                        last_in_exclude_range = False
+                        if exclude_x_range is not None and self.last_character_x is not None:
+                            exclude_x_min, exclude_x_max = exclude_x_range
+                            if (exclude_x_min - 50) <= self.last_character_x <= (exclude_x_max + 50):
+                                last_in_exclude_range = True
+                        
+                        if closest_distance > self.character_x_tolerance * 2:
+                            if is_in_exclude_range or (is_near_exclude_range and last_in_exclude_range):
+                                # 候選在排除範圍內或附近，且上次位置也在排除範圍附近，可能是自己的角色在移動到離開位置，允許較大的位置變化
+                                best_candidate = closest_candidate
+                                self.logger.warning(f"沒有找到接近的候選，但候選在離開位置附近，選擇位置變化最小的候選 (位置變化: {closest_distance:.0f}px > {self.character_x_tolerance * 2}px，上次位置: {self.last_character_x:.0f})")
+                            else:
+                                # 候選不在排除範圍內或附近，且位置變化過大
+                                # 但如果沒有提供排除範圍（不是移動到離開位置的情況），可能是剛進入自由市場，位置變化大是正常的
+                                # 在這種情況下，清除位置記錄，讓系統重新選擇最左邊的血條
+                                if exclude_x_range is None:
+                                    self.logger.warning(f"沒有找到接近的候選，且最近候選的位置變化過大 ({closest_distance:.0f}px > {self.character_x_tolerance * 2}px)，可能是剛進入自由市場，清除位置記錄並重新選擇")
+                                    self.last_character_x = None
+                                    self.last_hp_bar_info = None
+                                    # 重新選擇最左邊的候選
+                                    for candidate in valid_candidates:
+                                        x_start = candidate['x_start']
+                                        if x_start < best_x_start:
+                                            best_x_start = x_start
+                                            best_candidate = candidate
+                                    if best_candidate is not None:
+                                        self.logger.info(f"清除位置記錄後，選擇最左邊的候選: x={best_candidate['x_start']:.0f}")
+                                    else:
+                                        return None
+                                else:
+                                    # 候選不在排除範圍內或附近，且位置變化過大，可能是其他玩家的血條，不選擇
+                                    self.logger.warning(f"沒有找到接近的候選，且最近候選的位置變化過大 ({closest_distance:.0f}px > {self.character_x_tolerance * 2}px)，可能是其他玩家的血條，不選擇任何候選")
+                                    # 不清除位置記錄，保留上次的位置，等待下次檢測
+                                    # 返回None，讓調用者處理
+                                    return None
+                        else:
+                            # 位置變化在可接受範圍內（雖然超過容差但不太大），使用最近的候選
+                            best_candidate = closest_candidate
+                            self.logger.warning(f"沒有找到接近的候選，選擇位置變化最小的候選 (位置變化: {closest_distance:.0f}px > {self.character_x_tolerance}px，上次位置: {self.last_character_x:.0f})")
+                    else:
+                        # 沒有候選，選擇最左邊的（作為最後的備選）
+                        for candidate in valid_candidates:
+                            x_start = candidate['x_start']
+                            if x_start < best_x_start:
+                                best_x_start = x_start
+                                best_candidate = candidate
+                        
+                        if best_candidate is not None:
+                            position_diff = abs(best_candidate['x_start'] - self.last_character_x)
+                            self.logger.warning(f"沒有找到接近的候選，選擇最左邊的候選 (位置變化: {position_diff:.0f}px > {self.character_x_tolerance}px，上次位置: {self.last_character_x:.0f})")
             else:
                 # 第一次檢測，選擇最左邊的
                 for candidate in valid_candidates:

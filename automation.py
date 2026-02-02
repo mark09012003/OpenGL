@@ -32,7 +32,7 @@ class AutomationManager:
             self.move_check_interval = float(automation_config.get("move_check_interval", 0.3))
             self.exit_wait = float(automation_config.get("exit_wait", 0.5))
             self.exit_key_duration = float(automation_config.get("exit_key_duration", 0.3))
-            self.exit_animation_wait = float(automation_config.get("exit_animation_wait", 2.0))
+            self.exit_animation_wait = float(automation_config.get("exit_animation_wait", 1.0))
             self.enter_retry_wait = float(automation_config.get("enter_retry_wait", 3.0))
             self.move_tolerance = int(automation_config.get("move_tolerance", 20))
             self.move_max_duration = int(automation_config.get("move_max_duration", 30))
@@ -56,7 +56,7 @@ class AutomationManager:
             self.move_check_interval = 0.1
             self.exit_wait = 0.5
             self.exit_key_duration = 0.3
-            self.exit_animation_wait = 2.0
+            self.exit_animation_wait = 1.0
             self.enter_retry_wait = 3.0
             self.move_tolerance = 20
             self.move_max_duration = 30
@@ -245,6 +245,7 @@ class AutomationManager:
             current_key = None
             last_character_x = None  # 記錄上一次檢測到的角色X位置
             stuck_count = 0  # 記錄血條位置不變的次數
+            no_change_count = 0  # 記錄連續多少次位置沒有變化（用於判斷是否到達最左邊或誤判）
             
             self.logger.info(f"開始移動到目標位置 X={target_x:.0f} (誤差範圍: ±{tolerance}像素)")
             
@@ -256,13 +257,49 @@ class AutomationManager:
                 character_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=exclude_x_range)
                 
                 if character_pos is None:
+                    # 如果檢測失敗（可能是位置變化過大，系統拒絕選擇錯誤的血條），等待一小段時間後重試
+                    if last_character_x is not None:
+                        self.logger.warning("檢測到血條位置變化過大，可能是其他玩家的血條，等待後重試")
+                        if not self._sleep_with_check(0.2):
+                            break
+                        continue
+                    # 如果沒有上次位置記錄，可能是剛進入自由市場或第一次檢測，清除位置記錄後重試
+                    if self.detection_manager.last_character_x is None:
+                        self.logger.warning("無法檢測到血條，且沒有上次位置記錄，可能是剛進入自由市場，清除位置記錄後重試")
+                        self.detection_manager.last_character_x = None
+                        self.detection_manager.last_hp_bar_info = None
+                        if not self._sleep_with_check(0.2):
+                            break
+                        continue
                     # 只有在 check_hp_bar_on_fail=True 時才終止程式（用於離開自由市場時）
                     if check_hp_bar_on_fail:
-                        self.logger.error("無法檢測到血條，終止程式")
-                        self.is_running = False
-                        # 通知GUI顯示錯誤訊息
-                        if hasattr(self, 'on_hp_bar_detection_failed'):
-                            self.on_hp_bar_detection_failed()
+                        # 但在終止前，先嘗試清除位置記錄並重新檢測一次
+                        self.logger.warning("無法檢測到血條，清除位置記錄並重新檢測一次")
+                        self.detection_manager.last_character_x = None
+                        self.detection_manager.last_hp_bar_info = None
+                        if not self._sleep_with_check(0.2):
+                            break
+                        # 重新檢測一次
+                        character_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=exclude_x_range)
+                        if character_pos is None:
+                            # 重新檢測仍然失敗，才終止程式
+                            self.logger.error("重新檢測後仍無法檢測到血條，終止程式")
+                            self.is_running = False
+                            # 通知GUI顯示錯誤訊息
+                            if hasattr(self, 'on_hp_bar_detection_failed'):
+                                self.on_hp_bar_detection_failed()
+                            if current_key:
+                                pyautogui.keyUp(current_key)
+                                current_key = None
+                            pyautogui.keyUp('left')
+                            pyautogui.keyUp('right')
+                            return False
+                        else:
+                            # 重新檢測成功，繼續執行
+                            self.logger.info("清除位置記錄後重新檢測成功，繼續移動")
+                            current_x, _ = character_pos
+                            last_character_x = current_x
+                            continue
                     else:
                         # 其他情況下，只記錄警告並繼續嘗試
                         self.logger.warning("無法檢測到血條，繼續嘗試...")
@@ -284,44 +321,161 @@ class AutomationManager:
                 current_x, _ = character_pos
                 
                 # 驗證血條是否正確：當執行角色移動時，正確的血條應該會向目標x靠近而非遠離
-                if last_character_x is not None and current_key:
-                    # 計算血條應該移動的方向
-                    if current_key == 'right':
-                        # 向右移動時，血條X應該增加（向目標靠近）
-                        expected_direction = 1  # 應該增加
-                        if current_x < 10 and abs(current_x - last_character_x) < 2:
-                            # 特殊情況：血條在 x<10 且位置不變，可能是錯誤的血條
-                            stuck_count += 1
-                        elif current_x <= last_character_x:
-                            # 血條沒有向右移動（甚至向左移動），可能是錯誤的血條
-                            stuck_count += 1
-                        else:
-                            stuck_count = 0  # 血條正確移動，重置計數
-                    elif current_key == 'left':
-                        # 向左移動時，血條X應該減少（向目標靠近）
-                        expected_direction = -1  # 應該減少
-                        if current_x >= last_character_x:
-                            # 血條沒有向左移動（甚至向右移動），可能是錯誤的血條
-                            stuck_count += 1
-                        else:
-                            stuck_count = 0  # 血條正確移動，重置計數
+                if last_character_x is not None:
+                    # 計算位置變化
+                    position_change = abs(current_x - last_character_x)
+                    # 允許小的位置變化（±2像素）視為正常（可能是檢測誤差或角色剛開始移動）
+                    position_change_threshold = 2
+                    
+                    # 檢查位置是否長時間沒有變化
+                    if position_change < position_change_threshold:
+                        no_change_count += 1
                     else:
-                        stuck_count = 0
+                        no_change_count = 0  # 位置有變化，重置計數
+                    
+                    # 如果位置長時間沒有變化（連續5次檢測，約0.5秒），判斷是到達最左邊還是誤判
+                    if no_change_count >= 5:
+                        if current_x < 20:  # 如果血條在很左邊的位置（x < 20），可能是已經到達最左邊
+                            self.logger.info(f"血條位置長時間不變且在最左邊 (x={current_x:.0f})，可能是已經到達最左邊，停止移動")
+                            if current_key:
+                                pyautogui.keyUp(current_key)
+                                current_key = None
+                            pyautogui.keyUp('left')
+                            pyautogui.keyUp('right')
+                            # 檢查是否已經到達目標位置（或接近）
+                            distance = abs(current_x - target_x)
+                            if distance <= tolerance:
+                                self.logger.info(f"已到達目標位置 (當前X: {current_x:.0f}, 目標X: {target_x:.0f})")
+                                return True
+                            else:
+                                self.logger.warning(f"已到達最左邊但未到達目標位置 (當前X: {current_x:.0f}, 目標X: {target_x:.0f})，可能無法繼續移動")
+                                return False
+                        else:
+                            # 如果不在最左邊，且位置長時間不變，可能是錯誤的血條
+                            self.logger.warning(f"血條位置長時間不變 (x={current_x:.0f})，且不在最左邊，可能是其他玩家的血條，清除位置記錄並重新檢測")
+                            # 清除當前檢測到的血條信息，強制重新檢測
+                            self.detection_manager.last_character_x = None
+                            self.detection_manager.last_hp_bar_info = None
+                            no_change_count = 0
+                            
+                            # 排除當前檢測到的血條位置（±30像素範圍），強制選擇其他血條
+                            exclude_current_x_min = current_x - 30
+                            exclude_current_x_max = current_x + 30
+                            
+                            # 合併原有的排除範圍和當前血條位置的排除範圍
+                            if exclude_x_range is not None:
+                                exclude_x_min = min(exclude_x_range[0], exclude_current_x_min)
+                                exclude_x_max = max(exclude_x_range[1], exclude_current_x_max)
+                            else:
+                                exclude_x_min = exclude_current_x_min
+                                exclude_x_max = exclude_current_x_max
+                            
+                            # 等待一小段時間，讓角色移動後再檢測
+                            if not self._sleep_with_check(0.2):
+                                break
+                            
+                            # 重新檢測，排除當前錯誤的血條位置
+                            character_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=(exclude_x_min, exclude_x_max))
+                            if character_pos:
+                                new_x, _ = character_pos
+                                if abs(new_x - current_x) > 10:  # 如果重新檢測到明顯不同的位置（至少10像素差異）
+                                    self.logger.info(f"重新檢測到新的血條位置: x={new_x:.0f} (原位置: {current_x:.0f})")
+                                    current_x = new_x
+                                    last_character_x = current_x
+                                else:
+                                    # 重新檢測到的位置和之前太接近，可能是同一個錯誤的血條
+                                    self.logger.warning(f"重新檢測到的血條位置 ({new_x:.0f}) 與原位置 ({current_x:.0f}) 太接近，可能仍是錯誤的血條")
+                                    # 清除位置記錄，下次檢測時會選擇最左邊的血條
+                                    self.detection_manager.last_character_x = None
+                                    self.detection_manager.last_hp_bar_info = None
+                            else:
+                                # 如果重新檢測失敗，清除位置記錄，下次檢測時會選擇最左邊的血條
+                                self.logger.warning("重新檢測未找到血條，清除位置記錄")
+                                self.detection_manager.last_character_x = None
+                                self.detection_manager.last_hp_bar_info = None
+                            continue  # 重新開始循環
+                    
+                    # 原有的移動方向驗證邏輯
+                    if current_key:
+                        # 計算血條應該移動的方向
+                        if current_key == 'right':
+                            # 向右移動時，血條X應該增加（向目標靠近）
+                            expected_direction = 1  # 應該增加
+                            if current_x < 10 and position_change < position_change_threshold:
+                                # 特殊情況：血條在 x<10 且位置幾乎不變，可能是錯誤的血條
+                                stuck_count += 1
+                            elif position_change < position_change_threshold:
+                                # 位置幾乎沒有變化，可能是角色還沒開始移動，暫時不計入卡住
+                                # 只有在連續多次都沒有變化時才視為卡住
+                                if stuck_count > 0:
+                                    stuck_count += 1
+                                # 否則保持 stuck_count 不變，給角色一些時間開始移動
+                            elif current_x <= last_character_x:
+                                # 血條沒有向右移動（甚至向左移動），可能是錯誤的血條
+                                stuck_count += 1
+                            else:
+                                stuck_count = 0  # 血條正確移動，重置計數
+                        elif current_key == 'left':
+                            # 向左移動時，血條X應該減少（向目標靠近）
+                            expected_direction = -1  # 應該減少
+                            if position_change < position_change_threshold:
+                                # 位置幾乎沒有變化，可能是角色還沒開始移動，暫時不計入卡住
+                                # 只有在連續多次都沒有變化時才視為卡住
+                                if stuck_count > 0:
+                                    stuck_count += 1
+                                # 否則保持 stuck_count 不變，給角色一些時間開始移動
+                            elif current_x >= last_character_x:
+                                # 血條沒有向左移動（甚至向右移動），可能是錯誤的血條
+                                stuck_count += 1
+                            else:
+                                stuck_count = 0  # 血條正確移動，重置計數
+                        else:
+                            stuck_count = 0
                     
                     # 如果連續多次檢測到血條沒有向目標方向移動，重新檢測
                     if stuck_count >= 2:
-                        self.logger.warning(f"檢測到血條在移動時沒有向目標方向靠近（當前X: {current_x:.0f}, 上次X: {last_character_x:.0f}, 移動方向: {current_key}），可能不是自己的血條，重新檢測")
-                        # 重新檢測，嘗試找到正確的血條
-                        character_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=exclude_x_range)
+                        self.logger.warning(f"檢測到血條在移動時沒有向目標方向靠近（當前X: {current_x:.0f}, 上次X: {last_character_x:.0f}, 移動方向: {current_key}），可能不是自己的血條，清除位置記錄並重新檢測")
+                        # 清除當前檢測到的血條信息，強制重新檢測
+                        self.detection_manager.last_character_x = None
+                        self.detection_manager.last_hp_bar_info = None
+                        
+                        # 排除當前檢測到的血條位置（±30像素範圍），強制選擇其他血條
+                        exclude_current_x_min = current_x - 30
+                        exclude_current_x_max = current_x + 30
+                        
+                        # 合併原有的排除範圍和當前血條位置的排除範圍
+                        if exclude_x_range is not None:
+                            exclude_x_min = min(exclude_x_range[0], exclude_current_x_min)
+                            exclude_x_max = max(exclude_x_range[1], exclude_current_x_max)
+                        else:
+                            exclude_x_min = exclude_current_x_min
+                            exclude_x_max = exclude_current_x_max
+                        
+                        # 等待一小段時間，讓角色移動後再檢測
+                        if not self._sleep_with_check(0.2):
+                            break
+                        
+                        # 重新檢測，排除當前錯誤的血條位置
+                        character_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=(exclude_x_min, exclude_x_max))
                         if character_pos:
                             new_x, _ = character_pos
-                            if new_x != current_x:  # 如果重新檢測到不同的位置
-                                self.logger.info(f"重新檢測到血條位置: x={new_x:.0f} (原位置: {current_x:.0f})")
+                            if abs(new_x - current_x) > 10:  # 如果重新檢測到明顯不同的位置（至少10像素差異）
+                                self.logger.info(f"重新檢測到新的血條位置: x={new_x:.0f} (原位置: {current_x:.0f})")
                                 current_x = new_x
-                            stuck_count = 0
-                            last_character_x = current_x
+                                stuck_count = 0
+                                last_character_x = current_x
+                            else:
+                                # 重新檢測到的位置和之前太接近，可能是同一個錯誤的血條
+                                self.logger.warning(f"重新檢測到的血條位置 ({new_x:.0f}) 與原位置 ({current_x:.0f}) 太接近，可能仍是錯誤的血條")
+                                # 清除位置記錄，下次檢測時會選擇最左邊的血條
+                                self.detection_manager.last_character_x = None
+                                self.detection_manager.last_hp_bar_info = None
+                                stuck_count = 0
                         else:
-                            # 如果重新檢測失敗，繼續使用當前位置
+                            # 如果重新檢測失敗，清除位置記錄，下次檢測時會選擇最左邊的血條
+                            self.logger.warning("重新檢測未找到血條，清除位置記錄")
+                            self.detection_manager.last_character_x = None
+                            self.detection_manager.last_hp_bar_info = None
                             stuck_count = 0
                 else:
                     stuck_count = 0  # 第一次檢測或沒有移動，重置計數
@@ -382,8 +536,12 @@ class AutomationManager:
                 pass
             return False
     
-    def exit_free_market(self) -> bool:
-        """離開自由市場（移動到定點後按上鍵）"""
+    def exit_free_market(self, skip_check=False) -> bool:
+        """離開自由市場（移動到定點後按上鍵）
+        
+        Args:
+            skip_check: 如果為 True，跳過離開驗證（用於確認視窗場景）
+        """
         if not self.window_manager.is_valid():
             return False
         
@@ -419,11 +577,7 @@ class AutomationManager:
                 pyautogui.keyUp('up')
                 return False
             pyautogui.keyUp('up')
-            
-            # 等待一小段時間後再次按上鍵
-            if not self._sleep_with_check(self.exit_wait):
-                return False
-            
+
             self.logger.info("按上鍵離開自由市場（第二次）")
             pyautogui.keyDown('up')
             if not self._sleep_with_check(self.exit_key_duration):
@@ -434,6 +588,11 @@ class AutomationManager:
             # 等待離開動畫完成（使用配置的動畫等待時間）
             if not self._sleep_with_check(self.exit_animation_wait):
                 return False
+            
+            # 如果 skip_check 為 True，跳過離開驗證（用於確認視窗場景）
+            if skip_check:
+                self.logger.info("已執行離開自由市場操作（跳過驗證）")
+                return True
             
             # 檢查是否已離開自由市場
             still_in_fm = self.detection_manager.check_free_market_entered()
@@ -539,8 +698,8 @@ class AutomationManager:
                 # 立即執行離開自由市場，然後返回 False，讓循環繼續執行技能和進入自由市場的流程
                 if self.last_entered_free_market:
                     self.logger.info("檢測到確認視窗，代表角色已在自由市場內，立即執行離開自由市場")
-                    # 立即執行離開自由市場
-                    if self.exit_free_market():
+                    # 立即執行離開自由市場（跳過驗證，因為確認視窗場景下不需要驗證）
+                    if self.exit_free_market(skip_check=True):
                         self.logger.info("已成功離開自由市場，將重新執行整輪邏輯（離開 -> 施放技能 -> 進入）")
                         self.last_entered_free_market = False
                         self.just_exited_free_market = True  # 設置標記，表示剛剛離開，需要重新執行整輪

@@ -3,7 +3,7 @@
     "skills": {
         "prayer_key": "1",
         "blessing_interval": "0.5",
-        "custom_skill1_enabled": false,
+        "custom_skill1_enabled": true,
         "custom_skill1_key": "3",
         "angel_blessing": "2",
         "custom_skill2_enabled": false,
@@ -18,7 +18,7 @@
         "fm_check_time": "1.0",
         "auto_stop_enabled": false,
         "auto_stop_time": "11:26",
-        "enter_fm": false,
+        "enter_fm": true,
         "use_floating_window": true,
         "move_direction": "left",
         "fixed_move": true,
@@ -26,7 +26,7 @@
     },
     "detection": {
         "hp_bar_y": 445,
-        "hp_bar_min_width": 20,
+        "hp_bar_min_width": 15,
         "hp_bar_max_width": 45,
         "color_r_min": 150,
         "color_r_max": 255,
@@ -58,7 +58,7 @@
         "move_check_interval": 0.3,
         "exit_wait": 0.5,
         "exit_key_duration": 0.3,
-        "exit_animation_wait": 2.0,
+        "exit_animation_wait": 1.0,
         "enter_retry_wait": 3.0,
         "move_tolerance": 20,
         "move_max_duration": 30.0,
@@ -68,8 +68,5 @@
         "anti_detect_interval": 0.1,
         "dialog_close_button_x": 830,
         "dialog_close_button_y": 466
-    },
-    "alarm": {
-        "volume": 0.5
     }
 }

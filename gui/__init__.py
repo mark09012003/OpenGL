@@ -2008,28 +2008,34 @@ class MapleStoryAutoPrayerGUI:
             return
         
         try:
+            # 先清除TextHandler的log_floating_text引用，避免後續日誌寫入嘗試訪問已銷毀的視窗
+            if hasattr(self, 'text_handler') and self.text_handler:
+                self.text_handler.log_floating_text = None
+            
             # 停止倒數更新
             if self.countdown_update_job and self.floating_window:
-                self.floating_window.after_cancel(self.countdown_update_job)
+                try:
+                    self.floating_window.after_cancel(self.countdown_update_job)
+                except:
+                    pass
                 self.countdown_update_job = None
             
-            # 關閉懸浮視窗
+            # 關閉懸浮視窗（使用 try-except 包裹，避免阻塞）
             if self.floating_window:
-                self.floating_window.destroy()
+                try:
+                    self.floating_window.destroy()
+                except:
+                    pass
                 self.floating_window = None
             if self.log_floating_window:
-                self.log_floating_window.destroy()
+                try:
+                    self.log_floating_window.destroy()
+                except:
+                    pass
                 self.log_floating_window = None
                 self.log_floating_text = None
-                # 清除TextHandler的log_floating_text引用
-                if hasattr(self, 'text_handler'):
-                    self.text_handler.log_floating_text = None
             
-            # 顯示主視窗
-            self.root.deiconify()
-            self.root.lift()
-            self.root.focus_force()
-            
+            # 更新狀態標誌（在銷毀視窗後立即更新，避免後續操作依賴這些標誌）
             self.is_floating = False
             self.countdown_label = None
             self.next_cycle_label = None
@@ -2042,10 +2048,29 @@ class MapleStoryAutoPrayerGUI:
                     pass
                 self.save_timer = None
             
-            self.logger.info("已恢復正常視窗狀態")
+            # 顯示主視窗（使用 try-except 包裹，避免阻塞）
+            try:
+                self.root.deiconify()
+                self.root.lift()
+                # focus_force() 在某些情況下可能會阻塞，使用 after() 延遲執行
+                self.root.after(10, lambda: self._try_focus_window())
+            except Exception as e:
+                self.logger.error(f"顯示主視窗失敗: {str(e)}")
+            
+            # 使用 after() 延遲記錄日誌，避免在恢復視窗時觸發日誌寫入
+            self.root.after(50, lambda: self.logger.info("已恢復正常視窗狀態"))
             
         except Exception as e:
-            self.logger.error(f"恢復正常視窗失敗: {str(e)}")
+            # 使用 after() 延遲記錄錯誤，避免阻塞
+            self.root.after(50, lambda: self.logger.error(f"恢復正常視窗失敗: {str(e)}"))
+    
+    def _try_focus_window(self):
+        """嘗試聚焦視窗（使用 try-except 包裹，避免阻塞）"""
+        try:
+            self.root.focus_force()
+        except:
+            # focus_force() 失敗時不影響其他操作，靜默忽略
+            pass
     
     def show_faq(self):
         """顯示幫助"""
@@ -2119,38 +2144,88 @@ class MapleStoryAutoPrayerGUI:
     
     def stop_automation(self):
         """停止自動化"""
+        self.logger.info("收到停止請求，正在終止自動化流程...")
+        # 立即設置停止標誌（這是最重要的，必須立即執行）
         self.is_running = False
         self.automation_manager.is_running = False
         self.show_overlay = False
-        self.cancel_auto_stop()
-        self.logger.info("停止自動化流程")
         
-        # 更新按鈕狀態（如果不在懸浮視窗模式）
-        if not self.is_floating:
-            self.stop_btn.config(state="disabled")
-            self.start_btn.config(state="normal")
+        # 取消定時停止
+        try:
+            self.cancel_auto_stop()
+        except:
+            pass
         
-        # 取消保存定時器（如果存在）
-        if self.save_timer:
+        # 確保所有按鍵都被釋放（使用 try-except 避免阻塞，在後台線程執行）
+        def release_keys():
             try:
-                if self.is_floating and self.floating_window:
-                    self.floating_window.after_cancel(self.save_timer)
-                else:
-                    self.root.after_cancel(self.save_timer)
+                pyautogui.keyUp('left')
+                pyautogui.keyUp('right')
+                pyautogui.keyUp('up')
+                pyautogui.keyUp('down')
             except:
                 pass
-            self.save_timer = None
         
-        # 恢復正常視窗（如果使用了懸浮視窗）
-        if self.is_floating:
-            self.restore_normal_window()
-        else:
-            # 如果沒有使用懸浮視窗，主視窗應該一直顯示，不需要恢復
-            # 但確保主視窗在最前面，方便用戶操作
-            self.root.lift()
-            self.root.focus_force()
+        # 在後台線程中釋放按鍵，避免阻塞
+        import threading
+        release_thread = threading.Thread(target=release_keys, daemon=True)
+        release_thread.start()
         
-        # 最後保存一次配置
+        self.logger.info("停止標誌已設置，自動化循環將在下次檢查時退出")
+        
+        # 使用 after() 延遲執行可能阻塞的操作，避免卡死 GUI
+        # 使用較短的延遲（10ms），確保操作能盡快執行
+        self.root.after(10, self._finish_stop_automation)
+    
+    def _finish_stop_automation(self):
+        """完成停止自動化的後續操作（在 GUI 線程中執行，避免阻塞）"""
+        try:
+            # 更新按鈕狀態（如果不在懸浮視窗模式）
+            if not self.is_floating:
+                if hasattr(self, 'stop_btn'):
+                    self.stop_btn.config(state="disabled")
+                if hasattr(self, 'start_btn'):
+                    self.start_btn.config(state="normal")
+            
+            # 取消保存定時器（如果存在）
+            if hasattr(self, 'save_timer') and self.save_timer:
+                try:
+                    if self.is_floating and hasattr(self, 'floating_window') and self.floating_window:
+                        self.floating_window.after_cancel(self.save_timer)
+                    else:
+                        self.root.after_cancel(self.save_timer)
+                except:
+                    pass
+                self.save_timer = None
+            
+            # 恢復正常視窗（如果使用了懸浮視窗）- 使用 after 延遲執行，避免阻塞
+            if self.is_floating:
+                self.root.after(50, self._restore_window_async)
+            else:
+                # 如果沒有使用懸浮視窗，主視窗應該一直顯示，不需要恢復
+                # 但確保主視窗在最前面，方便用戶操作
+                try:
+                    self.root.lift()
+                    self.root.focus_force()
+                except:
+                    pass
+            
+            # 最後保存一次配置（使用 after 延遲執行，避免阻塞）
+            self.root.after(200, lambda: self._save_config_async())
+        except Exception as e:
+            self.logger.error(f"完成停止自動化時發生錯誤: {str(e)}")
+    
+    def _restore_window_async(self):
+        """異步恢復正常視窗（避免阻塞）"""
+        try:
+            # 檢查是否仍在停止狀態，避免重複執行
+            if not self.is_running:
+                self.restore_normal_window()
+        except Exception as e:
+            self.logger.error(f"恢復正常視窗失敗: {str(e)}")
+    
+    def _save_config_async(self):
+        """異步保存配置（避免阻塞）"""
         try:
             self.save_config()
         except Exception as e:
@@ -2429,6 +2504,11 @@ class MapleStoryAutoPrayerGUI:
                         self.last_entered_free_market = True
                 
                 # 等待間隔（自由市場待機時間 ±20秒）
+                # 在每次循環開始時檢查 is_running，確保能及時退出
+                if not self.is_running or not self.automation_manager.is_running:
+                    self.logger.info("檢測到停止信號，退出自動化循環")
+                    break
+                    
                 if self.is_running:
                     base_interval = float(self.fm_wait_var.get()) if hasattr(self, 'fm_wait_var') else 230.0
                     wait_interval = self.automation_manager.get_skill_interval(base_interval)
@@ -2442,14 +2522,43 @@ class MapleStoryAutoPrayerGUI:
                     if not self.countdown_update_job:
                         self.countdown_update_job = self.floating_window.after(1000, self.update_countdown)
                     if not self.automation_manager._sleep_with_check(wait_interval, update_countdown=True):
+                        self.logger.info("等待被中斷，退出自動化循環")
                         break
                         
         except Exception as e:
             self.logger.error(f"自動化循環錯誤: {str(e)}")
         finally:
-            # 確保UI狀態更新
-            self.root.after(0, lambda: self.stop_btn.config(state="disabled"))
-            self.root.after(0, lambda: self.start_btn.config(state="normal"))
+            # 確保停止標誌已設置
+            self.is_running = False
+            self.automation_manager.is_running = False
+            
+            # 確保所有按鍵都被釋放
+            try:
+                pyautogui.keyUp('left')
+                pyautogui.keyUp('right')
+                pyautogui.keyUp('up')
+                pyautogui.keyUp('down')
+            except:
+                pass
+            
+            # 停止倒數更新
+            if hasattr(self, 'countdown_update_job') and self.countdown_update_job:
+                try:
+                    if self.is_floating and hasattr(self, 'floating_window') and self.floating_window:
+                        self.floating_window.after_cancel(self.countdown_update_job)
+                    else:
+                        self.root.after_cancel(self.countdown_update_job)
+                except:
+                    pass
+                self.countdown_update_job = None
+            
+            # 確保UI狀態更新（使用 after 確保在 GUI 線程中執行）
+            try:
+                self.root.after(0, lambda: self.stop_btn.config(state="disabled") if hasattr(self, 'stop_btn') else None)
+                self.root.after(0, lambda: self.start_btn.config(state="normal") if hasattr(self, 'start_btn') else None)
+            except:
+                pass
+            
             self.logger.info("自動化循環已結束")
     
     def setup_auto_save_bindings(self):
