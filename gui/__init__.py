@@ -81,6 +81,8 @@ class MapleStoryAutoPrayerGUI:
         
         # 懸浮視窗狀態
         self.floating_window = None
+        self.log_floating_window = None  # Log懸浮視窗
+        self.log_floating_text = None  # Log懸浮視窗的文字顯示組件
         self.countdown_label = None
         self.next_cycle_label = None
         self.countdown_update_job = None
@@ -162,22 +164,44 @@ class MapleStoryAutoPrayerGUI:
     def setup_log_handler(self):
         """設定日誌處理器"""
         class TextHandler(logging.Handler):
-            def __init__(self, text_widget):
+            def __init__(self, text_widget, log_floating_text=None):
                 logging.Handler.__init__(self)
                 self.text_widget = text_widget
+                self.log_floating_text = log_floating_text
             
             def emit(self, record):
                 msg = self.format(record)
                 def append():
+                    # 更新主視窗的日誌
                     self.text_widget.config(state="normal")
                     self.text_widget.insert(tk.END, msg + '\n')
                     self.text_widget.see(tk.END)
                     self.text_widget.config(state="disabled")
+                    
+                    # 更新Log懸浮視窗的日誌（如果存在）
+                    if self.log_floating_text:
+                        try:
+                            self.log_floating_text.config(state="normal")
+                            self.log_floating_text.insert(tk.END, msg + '\n')
+                            self.log_floating_text.see(tk.END)
+                            self.log_floating_text.config(state="disabled")
+                            
+                            # 限制日誌行數（保留最近500行）
+                            lines = int(self.log_floating_text.index('end-1c').split('.')[0])
+                            if lines > 500:
+                                self.log_floating_text.config(state="normal")
+                                self.log_floating_text.delete('1.0', f'{lines-500}.0')
+                                self.log_floating_text.config(state="disabled")
+                        except Exception:
+                            pass  # 忽略更新失敗
                 self.text_widget.after(0, append)
         
-        text_handler = TextHandler(self.log_text)
+        text_handler = TextHandler(self.log_text, None)  # 初始時log_floating_text為None
         text_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         self.logger.addHandler(text_handler)
+        
+        # 保存text_handler引用，以便後續更新log_floating_text
+        self.text_handler = text_handler
     
     def enum_windows_callback(self, hwnd, windows):
         """列舉視窗回調"""
@@ -583,25 +607,22 @@ class MapleStoryAutoPrayerGUI:
         
         self.calibration_window = tk.Toplevel(self.root)
         self.calibration_window.title("校準設定")
-        self.calibration_window.geometry("900x700")
+        self.calibration_window.geometry("1000x750")
         self.calibration_window.configure(bg=Theme.BACKGROUND_PRIMARY)
         self.calibration_window.protocol("WM_DELETE_WINDOW", self.toggle_calibration)
         
-        # 創建滾動框架
-        canvas = tk.Canvas(self.calibration_window, bg=Theme.BACKGROUND_PRIMARY, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.calibration_window, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg=Theme.BACKGROUND_PRIMARY)
+        # 創建主容器（垂直布局）
+        main_container = tk.Frame(self.calibration_window, bg=Theme.BACKGROUND_PRIMARY)
+        main_container.pack(fill="both", expand=True, padx=5, pady=5)
         
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        # 創建標籤頁（Notebook）
+        notebook = ttk.Notebook(main_container)
+        notebook.pack(side="top", fill="both", expand=True, pady=(0, 5))
         
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        # 創建固定的底部按鈕區域
+        bottom_btn_frame = tk.Frame(main_container, bg=Theme.BACKGROUND_PRIMARY, height=50)
+        bottom_btn_frame.pack(side="bottom", fill="x", pady=5)
+        bottom_btn_frame.pack_propagate(False)  # 保持固定高度
         
         # 載入當前配置
         config = self.config_manager.load()
@@ -611,16 +632,27 @@ class MapleStoryAutoPrayerGUI:
         # 創建變數字典
         self.calibration_vars = {}
         
-        # Detection 參數區塊 - 使用兩列布局
-        detection_frame = SectionFrame(scrollable_frame, "檢測參數")
-        detection_frame.get_frame().pack(fill="x", padx=10, pady=3)
-        detection_inner = detection_frame.get_frame()
+        # ========== 標籤頁1: 血條檢測參數 ==========
+        tab1 = tk.Frame(notebook, bg=Theme.BACKGROUND_PRIMARY)
+        notebook.add(tab1, text="血條檢測")
+        
+        # 創建滾動框架
+        tab1_canvas = tk.Canvas(tab1, bg=Theme.BACKGROUND_PRIMARY, highlightthickness=0)
+        tab1_scrollbar = ttk.Scrollbar(tab1, orient="vertical", command=tab1_canvas.yview)
+        tab1_scrollable = tk.Frame(tab1_canvas, bg=Theme.BACKGROUND_PRIMARY)
+        
+        tab1_scrollable.bind("<Configure>", lambda e: tab1_canvas.configure(scrollregion=tab1_canvas.bbox("all")))
+        tab1_canvas.create_window((0, 0), window=tab1_scrollable, anchor="nw")
+        tab1_canvas.configure(yscrollcommand=tab1_scrollbar.set)
+        
+        tab1_canvas.pack(side="left", fill="both", expand=True)
+        tab1_scrollbar.pack(side="right", fill="y")
         
         # 創建兩列容器
-        detection_left = tk.Frame(detection_inner, bg=Theme.BACKGROUND_PRIMARY)
-        detection_left.pack(side="left", fill="both", expand=True, padx=5, pady=3)
-        detection_right = tk.Frame(detection_inner, bg=Theme.BACKGROUND_PRIMARY)
-        detection_right.pack(side="left", fill="both", expand=True, padx=5, pady=3)
+        detection_left = tk.Frame(tab1_scrollable, bg=Theme.BACKGROUND_PRIMARY)
+        detection_left.pack(side="left", fill="both", expand=True, padx=10, pady=5)
+        detection_right = tk.Frame(tab1_scrollable, bg=Theme.BACKGROUND_PRIMARY)
+        detection_right.pack(side="left", fill="both", expand=True, padx=10, pady=5)
         
         def create_param_row(parent, label_text, param_key, default_value, has_button=False, button_cmd=None):
             """創建參數行的輔助函數"""
@@ -656,16 +688,27 @@ class MapleStoryAutoPrayerGUI:
         create_param_row(detection_right, "像素間隙容差", "pixel_gap_tolerance", 2)
         create_param_row(detection_right, "角色Y偏移", "character_y_offset", 15)
         
-        # 提示視窗檢測參數 - 使用兩列布局
-        dialog_section = SectionFrame(scrollable_frame, "提示視窗檢測參數")
-        dialog_section.get_frame().pack(fill="x", padx=10, pady=3)
-        dialog_inner = dialog_section.get_frame()
+        # ========== 標籤頁2: 提示視窗檢測參數 ==========
+        tab2 = tk.Frame(notebook, bg=Theme.BACKGROUND_PRIMARY)
+        notebook.add(tab2, text="提示視窗檢測")
+        
+        # 創建滾動框架
+        tab2_canvas = tk.Canvas(tab2, bg=Theme.BACKGROUND_PRIMARY, highlightthickness=0)
+        tab2_scrollbar = ttk.Scrollbar(tab2, orient="vertical", command=tab2_canvas.yview)
+        tab2_scrollable = tk.Frame(tab2_canvas, bg=Theme.BACKGROUND_PRIMARY)
+        
+        tab2_scrollable.bind("<Configure>", lambda e: tab2_canvas.configure(scrollregion=tab2_canvas.bbox("all")))
+        tab2_canvas.create_window((0, 0), window=tab2_scrollable, anchor="nw")
+        tab2_canvas.configure(yscrollcommand=tab2_scrollbar.set)
+        
+        tab2_canvas.pack(side="left", fill="both", expand=True)
+        tab2_scrollbar.pack(side="right", fill="y")
         
         # 創建兩列容器
-        dialog_left = tk.Frame(dialog_inner, bg=Theme.BACKGROUND_PRIMARY)
-        dialog_left.pack(side="left", fill="both", expand=True, padx=5, pady=3)
-        dialog_right = tk.Frame(dialog_inner, bg=Theme.BACKGROUND_PRIMARY)
-        dialog_right.pack(side="left", fill="both", expand=True, padx=5, pady=3)
+        dialog_left = tk.Frame(tab2_scrollable, bg=Theme.BACKGROUND_PRIMARY)
+        dialog_left.pack(side="left", fill="both", expand=True, padx=10, pady=5)
+        dialog_right = tk.Frame(tab2_scrollable, bg=Theme.BACKGROUND_PRIMARY)
+        dialog_right.pack(side="left", fill="both", expand=True, padx=10, pady=5)
         
         def create_dialog_param_row(parent, label_text, param_key, default_value, has_button=False, button_cmd=None):
             """創建對話框參數行的輔助函數"""
@@ -699,24 +742,35 @@ class MapleStoryAutoPrayerGUI:
         create_dialog_param_row(dialog_right, "顏色容差", "dialog_bg_tolerance", 30)
         
         # 測試按鈕
-        test_btn_row = tk.Frame(dialog_inner, bg=Theme.BACKGROUND_PRIMARY)
-        test_btn_row.pack(fill="x", padx=5, pady=5)
+        test_btn_row = tk.Frame(tab2_scrollable, bg=Theme.BACKGROUND_PRIMARY)
+        test_btn_row.pack(fill="x", padx=10, pady=10)
         test_dialog_btn = tk.Button(test_btn_row, text="測試檢測提示視窗", command=self.test_dialog_detection,
                                     bg=Theme.BUTTON_SECONDARY, fg=Theme.BUTTON_SECONDARY_TEXT,
                                     activebackground=Theme.BUTTON_SECONDARY_HOVER, activeforeground=Theme.BUTTON_SECONDARY_TEXT,
                                     font=Theme.get_font_config(Theme.FONT_SIZE_NORMAL, 'bold'), relief='flat', cursor='hand2')
         test_dialog_btn.pack(pady=3)
         
-        # Automation 參數區塊 - 使用兩列布局
-        automation_frame = SectionFrame(scrollable_frame, "自動化參數")
-        automation_frame.get_frame().pack(fill="x", padx=10, pady=3)
-        automation_inner = automation_frame.get_frame()
+        # ========== 標籤頁3: 自動化參數 ==========
+        tab3 = tk.Frame(notebook, bg=Theme.BACKGROUND_PRIMARY)
+        notebook.add(tab3, text="自動化參數")
+        
+        # 創建滾動框架
+        tab3_canvas = tk.Canvas(tab3, bg=Theme.BACKGROUND_PRIMARY, highlightthickness=0)
+        tab3_scrollbar = ttk.Scrollbar(tab3, orient="vertical", command=tab3_canvas.yview)
+        tab3_scrollable = tk.Frame(tab3_canvas, bg=Theme.BACKGROUND_PRIMARY)
+        
+        tab3_scrollable.bind("<Configure>", lambda e: tab3_canvas.configure(scrollregion=tab3_canvas.bbox("all")))
+        tab3_canvas.create_window((0, 0), window=tab3_scrollable, anchor="nw")
+        tab3_canvas.configure(yscrollcommand=tab3_scrollbar.set)
+        
+        tab3_canvas.pack(side="left", fill="both", expand=True)
+        tab3_scrollbar.pack(side="right", fill="y")
         
         # 創建兩列容器
-        automation_left = tk.Frame(automation_inner, bg=Theme.BACKGROUND_PRIMARY)
-        automation_left.pack(side="left", fill="both", expand=True, padx=5, pady=3)
-        automation_right = tk.Frame(automation_inner, bg=Theme.BACKGROUND_PRIMARY)
-        automation_right.pack(side="left", fill="both", expand=True, padx=5, pady=3)
+        automation_left = tk.Frame(tab3_scrollable, bg=Theme.BACKGROUND_PRIMARY)
+        automation_left.pack(side="left", fill="both", expand=True, padx=10, pady=5)
+        automation_right = tk.Frame(tab3_scrollable, bg=Theme.BACKGROUND_PRIMARY)
+        automation_right.pack(side="left", fill="both", expand=True, padx=10, pady=5)
         
         def create_automation_param_row(parent, label_text, param_key, default_value, has_button=False, button_cmd=None):
             """創建自動化參數行的輔助函數"""
@@ -761,14 +815,13 @@ class MapleStoryAutoPrayerGUI:
         create_automation_param_row(automation_right, "進入重試等待(秒)", "enter_retry_wait", 3.0)
         create_automation_param_row(automation_right, "技能間隔隨機範圍(%)", "skill_interval_random_range", 20)
         
-        # 保存按鈕
-        btn_frame = tk.Frame(scrollable_frame, bg=Theme.BACKGROUND_PRIMARY)
-        btn_frame.pack(fill="x", padx=10, pady=5)
-        save_btn = tk.Button(btn_frame, text="保存校準數值", command=self.save_calibration_config, 
+        # 保存按鈕（固定在底部，不在滾動區域內）
+        save_btn = tk.Button(bottom_btn_frame, text="保存校準數值", command=self.save_calibration_config, 
                             bg=Theme.BUTTON_PRIMARY, fg=Theme.BUTTON_PRIMARY_TEXT,
                             activebackground=Theme.BUTTON_PRIMARY_HOVER, activeforeground=Theme.BUTTON_PRIMARY_TEXT,
-                            font=Theme.get_font_config(Theme.FONT_SIZE_NORMAL, 'bold'), relief='flat', cursor='hand2')
-        save_btn.pack(pady=3)
+                            font=Theme.get_font_config(Theme.FONT_SIZE_NORMAL, 'bold'), relief='flat', cursor='hand2',
+                            width=20, height=2)
+        save_btn.pack(expand=True, pady=10)
     
     def on_calibration_change(self, param_key, var):
         """當校準參數改變時的回調 - 只更新屬性值，不重新初始化管理器"""
@@ -1649,6 +1702,9 @@ class MapleStoryAutoPrayerGUI:
             self.is_floating = True
             self.logger.info(f"已創建懸浮視窗，位置: ({floating_x}, {floating_y}), 大小: {actual_width}x{actual_height}")
             
+            # 創建Log懸浮視窗
+            self._create_log_floating_window(game_x, game_y, game_width, game_height)
+            
         except Exception as e:
             self.logger.error(f"創建懸浮視窗失敗: {str(e)}")
             # 如果失敗，恢復主視窗
@@ -1709,6 +1765,121 @@ class MapleStoryAutoPrayerGUI:
         """停止拖移懸浮視窗"""
         self.is_dragging = False
     
+    def _create_log_floating_window(self, game_x, game_y, game_width, game_height):
+        """創建Log懸浮視窗"""
+        try:
+            # 計算Log懸浮視窗位置（放在遊戲視窗左側）
+            log_width = 400
+            log_height = 300
+            log_x = game_x - log_width - 10
+            log_y = game_y + 10
+            
+            # 確保視窗不會超出螢幕範圍
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            if log_x < 0:
+                log_x = game_x + game_width + 10  # 如果左側放不下，放在右側
+            if log_x + log_width > screen_width:
+                log_x = screen_width - log_width - 10
+            if log_y + log_height > screen_height:
+                log_y = screen_height - log_height - 10
+            if log_y < 0:
+                log_y = 10
+            
+            # 創建Log懸浮視窗
+            self.log_floating_window = tk.Toplevel()
+            self.log_floating_window.title("執行日誌")
+            self.log_floating_window.overrideredirect(True)  # 無邊框
+            self.log_floating_window.attributes('-topmost', True)  # 置頂
+            self.log_floating_window.attributes('-alpha', 0.9)  # 半透明
+            self.log_floating_window.configure(bg=Theme.BACKGROUND_PRIMARY)
+            self.log_floating_window.geometry(f"{log_width}x{log_height}+{log_x}+{log_y}")
+            
+            # 創建標題欄（可拖移）
+            title_frame = tk.Frame(self.log_floating_window, bg=Theme.BACKGROUND_SECONDARY, height=30)
+            title_frame.pack(fill="x")
+            title_frame.pack_propagate(False)
+            
+            title_label = tk.Label(
+                title_frame,
+                text="執行日誌",
+                bg=Theme.BACKGROUND_SECONDARY,
+                fg=Theme.TEXT_PRIMARY,
+                font=Theme.get_font_config(Theme.FONT_SIZE_SMALL, 'bold')
+            )
+            title_label.pack(side="left", padx=10, pady=5)
+            
+            # 綁定拖移事件到標題欄
+            title_frame.bind('<Button-1>', self._on_log_window_drag_start)
+            title_frame.bind('<B1-Motion>', self._on_log_window_drag)
+            title_frame.bind('<ButtonRelease-1>', self._on_log_window_drag_stop)
+            title_label.bind('<Button-1>', self._on_log_window_drag_start)
+            title_label.bind('<B1-Motion>', self._on_log_window_drag)
+            title_label.bind('<ButtonRelease-1>', self._on_log_window_drag_stop)
+            
+            # 創建文字顯示區域（使用ScrolledText）
+            from tkinter import scrolledtext
+            self.log_floating_text = scrolledtext.ScrolledText(
+                self.log_floating_window,
+                bg=Theme.BACKGROUND_PRIMARY,
+                fg=Theme.TEXT_PRIMARY,
+                font=Theme.get_font_config(Theme.FONT_SIZE_SMALL, 'normal'),
+                wrap=tk.WORD,
+                state="disabled",
+                padx=5,
+                pady=5
+            )
+            self.log_floating_text.pack(fill="both", expand=True)
+            
+            # 綁定關閉事件
+            self.log_floating_window.protocol("WM_DELETE_WINDOW", lambda: None)  # 不允許關閉，只能通過停止自動化關閉
+            
+            self.logger.info(f"已創建Log懸浮視窗，位置: ({log_x}, {log_y}), 大小: {log_width}x{log_height}")
+            
+            # 更新TextHandler的log_floating_text引用
+            if hasattr(self, 'text_handler'):
+                self.text_handler.log_floating_text = self.log_floating_text
+            
+        except Exception as e:
+            self.logger.error(f"創建Log懸浮視窗失敗: {str(e)}")
+    
+    def _on_log_window_drag_start(self, event):
+        """開始拖移Log懸浮視窗"""
+        if self.log_floating_window:
+            self.drag_start_x = event.x_root
+            self.drag_start_y = event.y_root
+            self.drag_window_x = self.log_floating_window.winfo_x()
+            self.drag_window_y = self.log_floating_window.winfo_y()
+            self.is_dragging = False
+    
+    def _on_log_window_drag(self, event):
+        """拖移Log懸浮視窗"""
+        if not self.log_floating_window:
+            return
+        
+        dx = event.x_root - self.drag_start_x
+        dy = event.y_root - self.drag_start_y
+        
+        if not self.is_dragging and (abs(dx) > 5 or abs(dy) > 5):
+            self.is_dragging = True
+        
+        if self.is_dragging:
+            x = self.drag_window_x + dx
+            y = self.drag_window_y + dy
+            
+            screen_width = self.log_floating_window.winfo_screenwidth()
+            screen_height = self.log_floating_window.winfo_screenheight()
+            window_width = self.log_floating_window.winfo_width()
+            window_height = self.log_floating_window.winfo_height()
+            
+            x = max(0, min(x, screen_width - window_width))
+            y = max(0, min(y, screen_height - window_height))
+            
+            self.log_floating_window.geometry(f"+{x}+{y}")
+    
+    def _on_log_window_drag_stop(self, event):
+        """停止拖移Log懸浮視窗"""
+        self.is_dragging = False
     
     def update_countdown(self):
         """更新倒數時間顯示"""
@@ -1846,6 +2017,13 @@ class MapleStoryAutoPrayerGUI:
             if self.floating_window:
                 self.floating_window.destroy()
                 self.floating_window = None
+            if self.log_floating_window:
+                self.log_floating_window.destroy()
+                self.log_floating_window = None
+                self.log_floating_text = None
+                # 清除TextHandler的log_floating_text引用
+                if hasattr(self, 'text_handler'):
+                    self.text_handler.log_floating_text = None
             
             # 顯示主視窗
             self.root.deiconify()

@@ -474,13 +474,47 @@ class AutomationManager:
                         return True
                     else:
                         # 仍然檢測到血條，但已經排除了離開位置，可能是自己的血條在其他位置
-                        # 再次檢查是否在自由市場（使用排除範圍）
-                        still_in_fm = self.detection_manager.check_free_market_entered(exclude_x_range=(exclude_x_min, exclude_x_max))
+                        new_x, _ = character_pos
+                        self.logger.info(f"排除離開位置後檢測到新血條位置: x={new_x:.0f}，移動到離開位置 ({target_x:.0f}) 並重新嘗試離開自由市場")
+                        
+                        # 移動到離開位置（不是移動到新血條位置，而是移動到離開位置）
+                        if not self.move_to_target_position(target_x, check_hp_bar_on_fail=True):
+                            self.logger.warning(f"移動到離開位置 ({target_x:.0f}) 失敗")
+                            return False
+                        
+                        # 等待一小段時間
+                        if not self._sleep_with_check(self.exit_wait):
+                            return False
+                        
+                        # 再次按上鍵離開自由市場（點擊兩次）
+                        self.logger.info("在離開位置按上鍵離開自由市場（第一次）")
+                        pyautogui.keyDown('up')
+                        if not self._sleep_with_check(self.exit_key_duration):
+                            pyautogui.keyUp('up')
+                            return False
+                        pyautogui.keyUp('up')
+                        
+                        if not self._sleep_with_check(self.exit_wait):
+                            return False
+                        
+                        self.logger.info("在離開位置按上鍵離開自由市場（第二次）")
+                        pyautogui.keyDown('up')
+                        if not self._sleep_with_check(self.exit_key_duration):
+                            pyautogui.keyUp('up')
+                            return False
+                        pyautogui.keyUp('up')
+                        
+                        # 等待離開動畫完成
+                        if not self._sleep_with_check(self.exit_animation_wait):
+                            return False
+                        
+                        # 再次檢查是否已離開自由市場
+                        still_in_fm = self.detection_manager.check_free_market_entered()
                         if not still_in_fm:
-                            self.logger.info("排除離開位置後重新檢測，確認已成功離開自由市場")
+                            self.logger.info("在離開位置按上鍵後成功離開自由市場")
                             return True
                         else:
-                            self.logger.warning("排除離開位置後重新檢測，仍在自由市場，可能移動位置不正確")
+                            self.logger.warning("在離開位置按上鍵後仍在自由市場，可能移動位置不正確")
                             return False
             
         except Exception as e:
