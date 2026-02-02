@@ -3,7 +3,7 @@ import pyautogui
 import time
 import random
 import logging
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple
 
 
 class AutomationManager:
@@ -227,7 +227,8 @@ class AutomationManager:
             return False
     
     def move_to_target_position(self, target_x: float, tolerance: int = None, 
-                                max_duration: int = None, check_hp_bar_on_fail: bool = False) -> bool:
+                                max_duration: int = None, check_hp_bar_on_fail: bool = False,
+                                exclude_x_range: Optional[Tuple[float, float]] = None) -> bool:
         """使用方向鍵移動角色直到到達目標X位置（使用配置的容差和最大持續時間）"""
         if tolerance is None:
             tolerance = self.move_tolerance
@@ -252,7 +253,7 @@ class AutomationManager:
                     break
                 
                 # 檢測當前人物位置（提高判斷頻率，使用更短的間隔）
-                character_pos = self.detection_manager.detect_hp_bar_position()
+                character_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=exclude_x_range)
                 
                 if character_pos is None:
                     # 只有在 check_hp_bar_on_fail=True 時才終止程式（用於離開自由市場時）
@@ -311,7 +312,7 @@ class AutomationManager:
                     if stuck_count >= 2:
                         self.logger.warning(f"檢測到血條在移動時沒有向目標方向靠近（當前X: {current_x:.0f}, 上次X: {last_character_x:.0f}, 移動方向: {current_key}），可能不是自己的血條，重新檢測")
                         # 重新檢測，嘗試找到正確的血條
-                        character_pos = self.detection_manager.detect_hp_bar_position()
+                        character_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=exclude_x_range)
                         if character_pos:
                             new_x, _ = character_pos
                             if new_x != current_x:  # 如果重新檢測到不同的位置
@@ -395,9 +396,15 @@ class AutomationManager:
             # 使用配置的目標位置（使用配置的容差）
             target_x = self.exit_target_x
             
+            # 計算排除的X範圍（離開位置 ±50像素），在第一次移動時就將離開位置附近的血條優先級設為最低
+            exclude_tolerance = 50  # 排除範圍容差（像素）
+            exclude_x_min = target_x - exclude_tolerance
+            exclude_x_max = target_x + exclude_tolerance
+            
             # 移動到目標位置（離開自由市場時，檢測不到血條要終止）
-            self.logger.info(f"移動到目標位置 X={target_x} 以離開自由市場")
-            if not self.move_to_target_position(target_x, check_hp_bar_on_fail=True):
+            # 在移動時就將離開位置附近的血條優先級設為最低，避免誤判其他人的血條
+            self.logger.info(f"移動到目標位置 X={target_x} 以離開自由市場（離開位置附近的血條優先級設為最低）")
+            if not self.move_to_target_position(target_x, check_hp_bar_on_fail=True, exclude_x_range=(exclude_x_min, exclude_x_max)):
                 self.logger.warning("移動到目標位置失敗")
                 return False
             
