@@ -50,6 +50,7 @@ class ConfigManager:
                 "color_r_b_ratio": 1.5,
                 "pixel_gap_tolerance": 2,
                 "character_y_offset": 15,
+                "character_x_tolerance": 100,  # 角色X位置變化容差（像素），超過此值視為其他角色
                 "dialog_check_x": 500,
                 "dialog_check_y": 300,
                 "dialog_check_width": 200,
@@ -69,7 +70,7 @@ class ConfigManager:
                 "button_click_wait": 0.2,
                 "button_click_delay": 0.1,
                 "retry_wait": 0.5,
-                "move_check_interval": 0.3,
+                "move_check_interval": 0.1,
                 "exit_wait": 0.5,
                 "exit_key_duration": 0.3,
                 "exit_animation_wait": 2.0,

@@ -16,6 +16,7 @@ class DetectionManager:
         self.all_candidates = []  # 保存所有檢測到的候選（包括未達門檻的）
         self.last_dialog_rgb = None  # 保存最後一次檢測到的對話框RGB平均值
         self.last_dialog_match_ratio = None  # 保存最後一次檢測到的匹配比例
+        self.last_character_x = None  # 保存上一次檢測到的角色X位置，用於驗證位置變化
         
         # 從配置中讀取檢測參數
         if config and "detection" in config:
@@ -31,6 +32,7 @@ class DetectionManager:
             self.color_r_b_ratio = float(detection_config.get("color_r_b_ratio", 1.5))
             self.pixel_gap_tolerance = int(detection_config.get("pixel_gap_tolerance", 2))
             self.character_y_offset = int(detection_config.get("character_y_offset", 15))
+            self.character_x_tolerance = int(detection_config.get("character_x_tolerance", 100))  # 角色X位置變化容差（像素）
             self.dialog_check_x = int(detection_config.get("dialog_check_x", 500))
             self.dialog_check_y = int(detection_config.get("dialog_check_y", 300))
             self.dialog_check_width = int(detection_config.get("dialog_check_width", 200))
@@ -52,6 +54,7 @@ class DetectionManager:
             self.color_r_b_ratio = 1.5
             self.pixel_gap_tolerance = 2
             self.character_y_offset = 15
+            self.character_x_tolerance = 100  # 角色X位置變化容差（像素）
             self.dialog_check_x = 500
             self.dialog_check_y = 300
             self.dialog_check_width = 200
@@ -61,7 +64,7 @@ class DetectionManager:
             self.dialog_bg_b = 223
             self.dialog_bg_tolerance = 30
     
-    def detect_hp_bar_position(self) -> Optional[Tuple[float, float]]:
+    def detect_hp_bar_position(self, exclude_x_range: Optional[Tuple[float, float]] = None) -> Optional[Tuple[float, float]]:
         """檢測角色頭頂上方的紅色血條位置，用於判斷人物位置（相對於視窗）"""
         window_handle = self.window_manager.get_window_handle()
         if not window_handle:
@@ -154,22 +157,82 @@ class DetectionManager:
             # 保存所有候選（包括未達門檻的）供測試和懸浮框使用
             self.all_candidates = candidates.copy()
             
-            # 選擇最長的連續紅色區間（最可能是血條）
+            # 選擇最左邊的連續紅色區間（最可能是血條）
             # 使用配置的寬度範圍
             min_width_threshold = self.hp_bar_min_width
             max_width_threshold = self.hp_bar_max_width
             best_candidate = None
-            best_width = 0
+            best_x_start = float('inf')  # 用於找最左邊的候選
+            
+            # 過濾候選：只考慮寬度在範圍內的候選，並標記離開位置附近的候選為低優先級
+            valid_candidates = []
+            low_priority_candidates = []  # 離開位置附近的候選（低優先級）
             
             for candidate in candidates:
                 width = candidate['width']
-                # 只考慮寬度在 40~43px 之間的區間
-                if min_width_threshold <= width <= max_width_threshold and width > best_width:
-                    best_width = width
-                    best_candidate = candidate
+                x_start = candidate['x_start']
+                # 只考慮寬度在範圍內的區間
+                if min_width_threshold <= width <= max_width_threshold:
+                    # 如果提供了排除的X範圍，標記該範圍內的候選為低優先級
+                    if exclude_x_range is not None:
+                        exclude_x_min, exclude_x_max = exclude_x_range
+                        if exclude_x_min <= x_start <= exclude_x_max:
+                            self.logger.debug(f"標記離開位置附近的候選血條為低優先級: x={x_start:.0f} (排除範圍: {exclude_x_min:.0f}~{exclude_x_max:.0f})")
+                            low_priority_candidates.append(candidate)
+                            continue
+                    valid_candidates.append(candidate)
+            
+            # 如果沒有高優先級候選，使用低優先級候選
+            if not valid_candidates and low_priority_candidates:
+                self.logger.info("沒有其他候選，使用離開位置附近的血條")
+                valid_candidates = low_priority_candidates
+            
+            # 選擇策略：
+            # 1. 如果上一次有記錄的位置，優先選擇與上一次位置最接近的候選（在容差範圍內）
+            # 2. 如果沒有接近的候選，選擇最左邊的
+            if self.last_character_x is not None:
+                # 優先選擇與上一次位置最接近的候選
+                closest_candidate = None
+                closest_distance = float('inf')
+                
+                for candidate in valid_candidates:
+                    x_start = candidate['x_start']
+                    distance = abs(x_start - self.last_character_x)
+                    
+                    # 如果距離在容差範圍內，優先選擇
+                    if distance <= self.character_x_tolerance:
+                        if distance < closest_distance:
+                            closest_distance = distance
+                            closest_candidate = candidate
+                
+                if closest_candidate is not None:
+                    # 找到接近的候選，使用它
+                    best_candidate = closest_candidate
+                    self.logger.debug(f"選擇與上一次位置最接近的候選 (距離: {closest_distance:.0f}px, 上次位置: {self.last_character_x:.0f})")
+                else:
+                    # 沒有接近的候選，選擇最左邊的
+                    for candidate in valid_candidates:
+                        x_start = candidate['x_start']
+                        if x_start < best_x_start:
+                            best_x_start = x_start
+                            best_candidate = candidate
+                    
+                    if best_candidate is not None:
+                        position_diff = abs(best_candidate['x_start'] - self.last_character_x)
+                        self.logger.warning(f"沒有找到接近的候選，選擇最左邊的候選 (位置變化: {position_diff:.0f}px > {self.character_x_tolerance}px，上次位置: {self.last_character_x:.0f})")
+            else:
+                # 第一次檢測，選擇最左邊的
+                for candidate in valid_candidates:
+                    x_start = candidate['x_start']
+                    if x_start < best_x_start:
+                        best_x_start = x_start
+                        best_candidate = candidate
             
             if best_candidate is None:
-                self.logger.warning(f"未找到寬度在 {min_width_threshold}~{max_width_threshold}px 之間的連續紅色像素區間")
+                if self.last_character_x is not None:
+                    self.logger.warning(f"未找到寬度在 {min_width_threshold}~{max_width_threshold}px 之間且位置變化在容差範圍內的連續紅色像素區間（容差: ±{self.character_x_tolerance}px，上次位置: {self.last_character_x:.0f}）")
+                else:
+                    self.logger.warning(f"未找到寬度在 {min_width_threshold}~{max_width_threshold}px 之間的連續紅色像素區間")
                 self.last_hp_bar_info = None  # 清空血條信息
                 return None
             
@@ -177,7 +240,15 @@ class DetectionManager:
             character_x = best_candidate['x_start']  # 人物水平位置為連續紅色區間的最左邊
             character_y = best_candidate['y'] + self.character_y_offset  # 使用配置的人物位置偏移
             
-            self.logger.info(f"檢測到血條 - 血條位置: ({best_candidate['x_start']:.0f}, {best_candidate['y']:.0f}), 寬度: {best_width}px, 人物位置: ({character_x:.0f}, {character_y:.0f})")
+            best_width = best_candidate['width']  # 獲取選中候選的寬度
+            
+            # 記錄位置變化（如果有上一次記錄）
+            position_diff_str = ""
+            if self.last_character_x is not None:
+                position_diff = abs(character_x - self.last_character_x)
+                position_diff_str = f", 位置變化: {position_diff:.0f}px"
+            
+            self.logger.info(f"檢測到血條 - 血條位置: ({best_candidate['x_start']:.0f}, {best_candidate['y']:.0f}), 寬度: {best_width}px, 人物位置: ({character_x:.0f}, {character_y:.0f}){position_diff_str}")
             
             # 保存血條信息供測試使用
             self.last_hp_bar_info = {
@@ -189,6 +260,9 @@ class DetectionManager:
                 'character_y': character_y
             }
             
+            # 更新上一次檢測到的角色X位置
+            self.last_character_x = character_x
+            
             return (character_x, character_y)  # 返回人物位置（相對於視窗）
             
         except Exception as e:
@@ -197,16 +271,40 @@ class DetectionManager:
             self.all_candidates = []  # 清空候選列表
             return None
     
-    def check_free_market_entered(self) -> bool:
-        """檢查是否成功進入自由市場（檢測配置的Y軸位置是否有血條）"""
+    def check_free_market_entered(self, exclude_x_range: Optional[Tuple[float, float]] = None) -> bool:
+        """檢查是否成功進入自由市場（檢測配置的Y軸位置是否有血條，且血條是自己的）"""
         try:
             # 使用血條檢測來判斷是否進入自由市場
             # 如果能在配置的Y軸位置檢測到血條，說明角色在自由市場中
-            character_pos = self.detect_hp_bar_position()
+            # 但需要確保檢測到的血條是自己的（通過位置驗證）
+            character_pos = self.detect_hp_bar_position(exclude_x_range=exclude_x_range)
             
             if character_pos is not None:
-                self.logger.info(f"檢測到血條（y={self.hp_bar_y}），已進入自由市場")
-                return True
+                # 檢查檢測到的血條是否為自己的
+                # 如果上一次有記錄的位置，檢查位置是否接近
+                if self.last_hp_bar_info is not None:
+                    detected_x = self.last_hp_bar_info['character_x']
+                    last_x = self.last_character_x
+                    
+                if last_x is not None:
+                    position_diff = abs(detected_x - last_x)
+                    if position_diff > self.character_x_tolerance:
+                        # 位置變化過大，可能是其他角色的血條
+                        # 清除位置記錄，讓下次檢測可以選擇其他血條
+                        self.logger.warning(f"檢測到血條但位置變化過大 ({position_diff:.0f}px > {self.character_x_tolerance}px)，可能是其他角色的血條，清除位置記錄以便重新檢測")
+                        self.last_character_x = None
+                        self.last_hp_bar_info = None
+                        return False
+                
+                # 檢查血條的Y軸位置是否在配置的Y軸附近（允許一定誤差）
+                detected_y = self.last_hp_bar_info['y']
+                y_tolerance = 10  # Y軸容差（像素）
+                if abs(detected_y - self.hp_bar_y) <= y_tolerance:
+                    self.logger.info(f"檢測到自己的血條（y={detected_y:.0f}，配置y={self.hp_bar_y}），已進入自由市場")
+                    return True
+                else:
+                    self.logger.debug(f"檢測到血條但Y軸位置不匹配（檢測y={detected_y:.0f}，配置y={self.hp_bar_y}），視為未進入自由市場")
+                    return False
             else:
                 self.logger.info(f"未檢測到血條（y={self.hp_bar_y}），未進入自由市場")
                 return False

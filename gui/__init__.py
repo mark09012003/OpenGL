@@ -1911,6 +1911,7 @@ class MapleStoryAutoPrayerGUI:
         
         # 重置上次進入自由市場的標誌，確保開始時直接施放技能
         self.last_entered_free_market = False
+        self.automation_manager.just_exited_free_market = False  # 重置剛剛離開自由市場的標記
         # 重置移動相關狀態
         self.last_move_direction = None
         self.move_cycle_count = 0
@@ -2080,7 +2081,9 @@ class MapleStoryAutoPrayerGUI:
                         self.automation_manager.execute_anti_detection_movement(direction, move_time)
                 
                 # 固定來回移動（在施放技能前）
-                if self.is_running and hasattr(self, 'fixed_move_var') and self.fixed_move_var.get():
+                # 只有在不進入自由市場時才執行固定來回移動
+                enter_fm_enabled = hasattr(self, 'enter_fm_var') and self.enter_fm_var.get()
+                if self.is_running and hasattr(self, 'fixed_move_var') and self.fixed_move_var.get() and not enter_fm_enabled:
                     # 決定是否執行移動（不是每一輪都移動）
                     # 使用計數器：每3輪執行一次移動（可以調整）
                     should_move = (self.move_cycle_count % 3 == 0)
@@ -2188,14 +2191,16 @@ class MapleStoryAutoPrayerGUI:
                     
                     entered = self.automation_manager.enter_free_market(max_retries=5, check_time=fm_check_time)
                     if not entered:
-                        # 如果進入自由市場失敗（可能是因為檢測到確認視窗），重新執行一輪
-                        self.logger.warning("進入自由市場失敗，重新執行一輪（離開 -> 施放技能 -> 進入）")
-                        # 如果之前在自由市場內，先離開
-                        if self.last_entered_free_market:
-                            self.last_entered_free_market = False
-                            if not self.automation_manager.exit_free_market():
-                                self.logger.error("離開自由市場失敗，停止自動化")
-                                break
+                        # 檢查是否剛剛離開自由市場（需要重新執行整輪邏輯）
+                        if self.automation_manager.just_exited_free_market:
+                            self.logger.info("已離開自由市場，重新執行整輪邏輯（離開 -> 施放技能 -> 進入）")
+                            self.automation_manager.just_exited_free_market = False  # 重置標記
+                            
+                            # 重新執行整輪：離開 -> 施放技能 -> 進入
+                            # 注意：已經離開自由市場了，所以這裡只需要執行技能和進入
+                            # 但如果 last_entered_free_market 為 True，會先執行離開邏輯
+                            # 所以我們需要確保不會重複執行離開
+                            
                             # 重新施放技能
                             prayer_key = self.prayer_key_var.get() if hasattr(self, 'prayer_key_var') else "f1"
                             self.automation_manager.send_key_press(prayer_key, "祈禱")
@@ -2206,10 +2211,42 @@ class MapleStoryAutoPrayerGUI:
                             self.automation_manager.send_key_press(angel_key, "天使祝福")
                             if not self.automation_manager._sleep_with_check(interval):
                                 break
+                            if hasattr(self, 'custom_skill1_var') and self.custom_skill1_var.get():
+                                skill1_key = self.custom_skill1_key_var.get() if hasattr(self, 'custom_skill1_key_var') else "f3"
+                                self.automation_manager.send_key_press(skill1_key, "自訂技能1")
+                                if not self.automation_manager._sleep_with_check(interval):
+                                    break
+                            if hasattr(self, 'custom_skill2_var') and self.custom_skill2_var.get():
+                                skill2_key = self.custom_skill2_key_var.get() if hasattr(self, 'custom_skill2_key_var') else "f4"
+                                self.automation_manager.send_key_press(skill2_key, "自訂技能2")
+                            
                             # 重新嘗試進入自由市場
                             entered = self.automation_manager.enter_free_market(max_retries=5, check_time=fm_check_time)
                             if entered:
                                 self.last_entered_free_market = True
+                        else:
+                            # 如果進入自由市場失敗（可能是因為檢測到確認視窗），重新執行一輪
+                            self.logger.warning("進入自由市場失敗，重新執行一輪（離開 -> 施放技能 -> 進入）")
+                            # 如果之前在自由市場內，先離開
+                            if self.last_entered_free_market:
+                                self.last_entered_free_market = False
+                                if not self.automation_manager.exit_free_market():
+                                    self.logger.error("離開自由市場失敗，停止自動化")
+                                    break
+                                # 重新施放技能
+                                prayer_key = self.prayer_key_var.get() if hasattr(self, 'prayer_key_var') else "f1"
+                                self.automation_manager.send_key_press(prayer_key, "祈禱")
+                                interval = float(self.blessing_interval_var.get()) if hasattr(self, 'blessing_interval_var') else 0.5
+                                if not self.automation_manager._sleep_with_check(interval):
+                                    break
+                                angel_key = self.angel_blessing_var.get() if hasattr(self, 'angel_blessing_var') else "f2"
+                                self.automation_manager.send_key_press(angel_key, "天使祝福")
+                                if not self.automation_manager._sleep_with_check(interval):
+                                    break
+                                # 重新嘗試進入自由市場
+                                entered = self.automation_manager.enter_free_market(max_retries=5, check_time=fm_check_time)
+                                if entered:
+                                    self.last_entered_free_market = True
                     else:
                         self.last_entered_free_market = True
                 

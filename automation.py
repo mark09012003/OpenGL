@@ -15,6 +15,7 @@ class AutomationManager:
         self.logger = logger or logging.getLogger(__name__)
         self.is_running = False
         self.last_entered_free_market = False
+        self.just_exited_free_market = False  # 標記：剛剛離開自由市場（跳過重新執行邏輯）
         
         # 從配置中讀取自動化參數
         if config and "automation" in config:
@@ -52,7 +53,7 @@ class AutomationManager:
             self.button_click_wait = 0.2
             self.button_click_delay = 0.1
             self.retry_wait = 0.5
-            self.move_check_interval = 0.3
+            self.move_check_interval = 0.1
             self.exit_wait = 0.5
             self.exit_key_duration = 0.3
             self.exit_animation_wait = 2.0
@@ -211,11 +212,14 @@ class AutomationManager:
                 return False
             
             # 檢查是否有確認視窗出現（如果出現代表這輪執行失敗）
-            if self.detection_manager.detect_dialog_window():
-                self.logger.warning("點擊自由市場按鈕後檢測到確認視窗，代表這輪執行失敗")
+            detected_dialog = self.detection_manager.detect_dialog_window()
+            if detected_dialog:
+                self.logger.warning("點擊自由市場按鈕後檢測到確認視窗，代表角色已在自由市場內")
                 # 關閉確認視窗
                 self.handle_dialog_window(max_retries=3)
-                return False  # 返回 False 表示失敗，需要重新執行一輪
+                # 設置標記，表示角色已在自由市場內，下一輪應該執行離開自由市場
+                self.last_entered_free_market = True
+                return False  # 返回 False 表示檢測到確認視窗（已在自由市場內）
             
             return True
         except Exception as e:
@@ -238,6 +242,8 @@ class AutomationManager:
             
             start_time = time.time()
             current_key = None
+            last_character_x = None  # 記錄上一次檢測到的角色X位置
+            stuck_count = 0  # 記錄血條位置不變的次數
             
             self.logger.info(f"開始移動到目標位置 X={target_x:.0f} (誤差範圍: ±{tolerance}像素)")
             
@@ -245,7 +251,7 @@ class AutomationManager:
                 if not self.is_running:
                     break
                 
-                # 檢測當前人物位置（只在需要移動時才檢測）
+                # 檢測當前人物位置（提高判斷頻率，使用更短的間隔）
                 character_pos = self.detection_manager.detect_hp_bar_position()
                 
                 if character_pos is None:
@@ -275,6 +281,51 @@ class AutomationManager:
                         continue
                 
                 current_x, _ = character_pos
+                
+                # 驗證血條是否正確：當執行角色移動時，正確的血條應該會向目標x靠近而非遠離
+                if last_character_x is not None and current_key:
+                    # 計算血條應該移動的方向
+                    if current_key == 'right':
+                        # 向右移動時，血條X應該增加（向目標靠近）
+                        expected_direction = 1  # 應該增加
+                        if current_x < 10 and abs(current_x - last_character_x) < 2:
+                            # 特殊情況：血條在 x<10 且位置不變，可能是錯誤的血條
+                            stuck_count += 1
+                        elif current_x <= last_character_x:
+                            # 血條沒有向右移動（甚至向左移動），可能是錯誤的血條
+                            stuck_count += 1
+                        else:
+                            stuck_count = 0  # 血條正確移動，重置計數
+                    elif current_key == 'left':
+                        # 向左移動時，血條X應該減少（向目標靠近）
+                        expected_direction = -1  # 應該減少
+                        if current_x >= last_character_x:
+                            # 血條沒有向左移動（甚至向右移動），可能是錯誤的血條
+                            stuck_count += 1
+                        else:
+                            stuck_count = 0  # 血條正確移動，重置計數
+                    else:
+                        stuck_count = 0
+                    
+                    # 如果連續多次檢測到血條沒有向目標方向移動，重新檢測
+                    if stuck_count >= 2:
+                        self.logger.warning(f"檢測到血條在移動時沒有向目標方向靠近（當前X: {current_x:.0f}, 上次X: {last_character_x:.0f}, 移動方向: {current_key}），可能不是自己的血條，重新檢測")
+                        # 重新檢測，嘗試找到正確的血條
+                        character_pos = self.detection_manager.detect_hp_bar_position()
+                        if character_pos:
+                            new_x, _ = character_pos
+                            if new_x != current_x:  # 如果重新檢測到不同的位置
+                                self.logger.info(f"重新檢測到血條位置: x={new_x:.0f} (原位置: {current_x:.0f})")
+                                current_x = new_x
+                            stuck_count = 0
+                            last_character_x = current_x
+                        else:
+                            # 如果重新檢測失敗，繼續使用當前位置
+                            stuck_count = 0
+                else:
+                    stuck_count = 0  # 第一次檢測或沒有移動，重置計數
+                
+                last_character_x = current_x
                 distance = abs(current_x - target_x)
                 
                 # 如果已經到達目標位置
@@ -294,18 +345,21 @@ class AutomationManager:
                             pyautogui.keyUp(current_key)
                         pyautogui.keyDown('right')
                         current_key = 'right'
+                        self.logger.debug(f"向右移動 (當前X: {current_x:.0f}, 目標X: {target_x:.0f})")
                 elif current_x > target_x:
                     if current_key != 'left':
                         if current_key:
                             pyautogui.keyUp(current_key)
                         pyautogui.keyDown('left')
                         current_key = 'left'
+                        self.logger.debug(f"向左移動 (當前X: {current_x:.0f}, 目標X: {target_x:.0f})")
                 else:
                     if current_key:
                         pyautogui.keyUp(current_key)
                         current_key = None
                 
-                if not self._sleep_with_check(self.move_check_interval):
+                # 提高判斷頻率，使用更短的間隔（0.1秒）避免移動過頭
+                if not self._sleep_with_check(0.1):
                     break
             
             # 確保所有按鍵都已釋放
@@ -380,8 +434,54 @@ class AutomationManager:
                 self.logger.info("已成功離開自由市場")
                 return True
             else:
-                self.logger.warning("按上鍵後仍在自由市場，可能移動位置不正確")
-                return False
+                self.logger.warning("按上鍵後仍在自由市場，可能是檢測到其他角色的血條，清除位置記錄並重試")
+                # 清除位置記錄，讓下次檢測可以選擇其他血條（可能是自己的血條）
+                self.detection_manager.last_character_x = None
+                self.detection_manager.last_hp_bar_info = None
+                
+                # 等待一小段時間後重新檢測
+                if not self._sleep_with_check(0.5):
+                    return False
+                
+                # 重新檢測是否已離開自由市場
+                still_in_fm = self.detection_manager.check_free_market_entered()
+                if not still_in_fm:
+                    self.logger.info("重新檢測後確認已成功離開自由市場")
+                    return True
+                else:
+                    # 重新檢測後仍在自由市場，代表有其他人站在離開位置上
+                    # 排除離開位置附近的X範圍，重新檢測並選擇其他血條
+                    self.logger.warning("重新檢測後仍在自由市場，可能有其他人站在離開位置上，排除離開位置附近的X範圍並重新檢測")
+                    
+                    # 計算排除的X範圍（離開位置 ±50像素）
+                    exclude_tolerance = 50  # 排除範圍容差（像素）
+                    exclude_x_min = target_x - exclude_tolerance
+                    exclude_x_max = target_x + exclude_tolerance
+                    
+                    # 清除位置記錄
+                    self.detection_manager.last_character_x = None
+                    self.detection_manager.last_hp_bar_info = None
+                    
+                    # 等待一小段時間後，使用排除範圍重新檢測
+                    if not self._sleep_with_check(0.5):
+                        return False
+                    
+                    # 使用排除範圍重新檢測血條位置
+                    character_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=(exclude_x_min, exclude_x_max))
+                    if character_pos is None:
+                        # 排除離開位置後未檢測到血條，視為已離開自由市場
+                        self.logger.info("排除離開位置後未檢測到血條，視為已成功離開自由市場")
+                        return True
+                    else:
+                        # 仍然檢測到血條，但已經排除了離開位置，可能是自己的血條在其他位置
+                        # 再次檢查是否在自由市場（使用排除範圍）
+                        still_in_fm = self.detection_manager.check_free_market_entered(exclude_x_range=(exclude_x_min, exclude_x_max))
+                        if not still_in_fm:
+                            self.logger.info("排除離開位置後重新檢測，確認已成功離開自由市場")
+                            return True
+                        else:
+                            self.logger.warning("排除離開位置後重新檢測，仍在自由市場，可能移動位置不正確")
+                            return False
             
         except Exception as e:
             self.logger.error(f"離開自由市場失敗: {str(e)}")
@@ -392,7 +492,22 @@ class AutomationManager:
         retry_count = 0
         
         while retry_count < max_retries and self.is_running:
-            if not self.click_free_market_button():
+            click_result = self.click_free_market_button()
+            if not click_result:
+                # 如果點擊失敗是因為檢測到確認視窗（已在 click_free_market_button 中設置 last_entered_free_market = True），
+                # 立即執行離開自由市場，然後返回 False，讓循環繼續執行技能和進入自由市場的流程
+                if self.last_entered_free_market:
+                    self.logger.info("檢測到確認視窗，代表角色已在自由市場內，立即執行離開自由市場")
+                    # 立即執行離開自由市場
+                    if self.exit_free_market():
+                        self.logger.info("已成功離開自由市場，將重新執行整輪邏輯（離開 -> 施放技能 -> 進入）")
+                        self.last_entered_free_market = False
+                        self.just_exited_free_market = True  # 設置標記，表示剛剛離開，需要重新執行整輪
+                        return False  # 返回 False，觸發重新執行整輪邏輯
+                    else:
+                        self.logger.error("離開自由市場失敗")
+                        return False
+                
                 retry_count += 1
                 if retry_count < max_retries:
                     self.logger.info(f"點擊失敗，{self.enter_retry_wait}秒後重試 ({retry_count}/{max_retries})")
