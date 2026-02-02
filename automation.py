@@ -39,6 +39,8 @@ class AutomationManager:
             self.anti_detect_min_moves = int(automation_config.get("anti_detect_min_moves", 0))
             self.anti_detect_max_moves = int(automation_config.get("anti_detect_max_moves", 2))
             self.anti_detect_interval = float(automation_config.get("anti_detect_interval", 0.1))
+            self.dialog_close_button_x = int(automation_config.get("dialog_close_button_x", 600))
+            self.dialog_close_button_y = int(automation_config.get("dialog_close_button_y", 400))
         else:
             # 預設值
             self.exit_target_x = 250
@@ -61,6 +63,10 @@ class AutomationManager:
             self.anti_detect_min_moves = 0
             self.anti_detect_max_moves = 2
             self.anti_detect_interval = 0.1
+            self.dialog_close_button_x = 600
+            self.dialog_close_button_y = 400
+            self.dialog_close_button_x = 600
+            self.dialog_close_button_y = 400
         
         # 設定pyautogui安全模式
         pyautogui.FAILSAFE = True
@@ -199,6 +205,18 @@ class AutomationManager:
             pyautogui.click(button_x, button_y)
             self.logger.info("已點擊自由市場按鈕（兩次）")
             
+            # 點擊後等待1秒，讓過場動畫有緩衝時間，確認視窗有時間出現
+            self.logger.info("等待1秒讓過場動畫完成")
+            if not self._sleep_with_check(1.0):
+                return False
+            
+            # 檢查是否有確認視窗出現（如果出現代表這輪執行失敗）
+            if self.detection_manager.detect_dialog_window():
+                self.logger.warning("點擊自由市場按鈕後檢測到確認視窗，代表這輪執行失敗")
+                # 關閉確認視窗
+                self.handle_dialog_window(max_retries=3)
+                return False  # 返回 False 表示失敗，需要重新執行一輪
+            
             return True
         except Exception as e:
             self.logger.error(f"點擊自由市場按鈕失敗: {str(e)}")
@@ -333,8 +351,19 @@ class AutomationManager:
             if not self._sleep_with_check(self.exit_wait):
                 return False
             
-            # 按上鍵離開自由市場（使用配置的按鍵持續時間）
-            self.logger.info("按上鍵離開自由市場")
+            # 按上鍵離開自由市場（點擊兩次，使用配置的按鍵持續時間）
+            self.logger.info("按上鍵離開自由市場（第一次）")
+            pyautogui.keyDown('up')
+            if not self._sleep_with_check(self.exit_key_duration):
+                pyautogui.keyUp('up')
+                return False
+            pyautogui.keyUp('up')
+            
+            # 等待一小段時間後再次按上鍵
+            if not self._sleep_with_check(self.exit_wait):
+                return False
+            
+            self.logger.info("按上鍵離開自由市場（第二次）")
             pyautogui.keyDown('up')
             if not self._sleep_with_check(self.exit_key_duration):
                 pyautogui.keyUp('up')
@@ -371,6 +400,9 @@ class AutomationManager:
                         return False
                 continue
             
+            # 點擊按鈕後，確認視窗的檢測已經在 click_free_market_button 中完成
+            # 如果 click_free_market_button 返回 False，代表檢測到確認視窗，這輪失敗
+            # 這裡只需要等待並檢查是否成功進入自由市場
             self.logger.info(f"等待 {check_time} 秒檢查是否進入自由市場")
             if not self._sleep_with_check(check_time):
                 return False
@@ -428,4 +460,64 @@ class AutomationManager:
             if i < num_moves - 1:
                 if not self._sleep_with_check(self.anti_detect_interval):
                     break
+    
+    def handle_dialog_window(self, max_retries: int = 3) -> bool:
+        """處理提示視窗：檢測並點擊關閉按鈕，重複直到沒有提示視窗
+        
+        返回 True 如果成功處理（沒有提示視窗或已關閉），False 如果處理失敗
+        """
+        retry_count = 0
+        
+        while retry_count < max_retries and self.is_running:
+            # 檢測是否有提示視窗
+            if not self.detection_manager.detect_dialog_window():
+                # 沒有提示視窗，處理成功
+                if retry_count > 0:
+                    self.logger.info("提示視窗已關閉")
+                return True
+            
+            # 檢測到提示視窗，點擊關閉按鈕
+            self.logger.info(f"檢測到提示視窗，點擊關閉按鈕 (嘗試 {retry_count + 1}/{max_retries})")
+            
+            if not self.window_manager.is_valid():
+                return False
+            
+            if not self.window_manager.bring_to_front():
+                return False
+            
+            # 等待一小段時間確保視窗已顯示
+            if not self._sleep_with_check(0.3):
+                return False
+            
+            # 獲取視窗位置
+            rect = self.window_manager.get_window_rect()
+            if not rect:
+                return False
+            
+            window_x, window_y, _, _ = rect
+            
+            # 計算絕對座標
+            absolute_x = int(window_x + self.dialog_close_button_x)
+            absolute_y = int(window_y + self.dialog_close_button_y)
+            
+            # 點擊關閉按鈕
+            try:
+                pyautogui.click(absolute_x, absolute_y)
+                self.logger.info(f"已點擊關閉按鈕 ({self.dialog_close_button_x}, {self.dialog_close_button_y})")
+            except Exception as e:
+                self.logger.error(f"點擊關閉按鈕失敗: {str(e)}")
+                return False
+            
+            # 等待一小段時間讓視窗關閉
+            if not self._sleep_with_check(0.5):
+                return False
+            
+            retry_count += 1
+        
+        # 如果達到最大重試次數，再次檢查是否還有提示視窗
+        if self.detection_manager.detect_dialog_window():
+            self.logger.warning(f"處理提示視窗失敗，已重試 {max_retries} 次，提示視窗仍然存在")
+            return False
+        
+        return True
 

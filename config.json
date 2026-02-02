@@ -3,7 +3,7 @@
     "skills": {
         "prayer_key": "1",
         "blessing_interval": "0.5",
-        "custom_skill1_enabled": true,
+        "custom_skill1_enabled": false,
         "custom_skill1_key": "3",
         "angel_blessing": "2",
         "custom_skill2_enabled": false,
@@ -18,11 +18,11 @@
         "fm_check_time": "3.0",
         "auto_stop_enabled": false,
         "auto_stop_time": "11:26",
-        "enter_fm": true,
+        "enter_fm": false,
         "use_floating_window": true,
-        "move_direction": "left",
-        "fixed_move": false,
-        "anti_detect_after_fm": true
+        "move_direction": "right",
+        "fixed_move": true,
+        "anti_detect_after_fm": false
     },
     "detection": {
         "hp_bar_y": 445,
@@ -35,7 +35,15 @@
         "color_r_g_ratio": 1.5,
         "color_r_b_ratio": 1.5,
         "pixel_gap_tolerance": 2,
-        "character_y_offset": 15
+        "character_y_offset": 15,
+        "dialog_check_x": 500,
+        "dialog_check_y": 300,
+        "dialog_check_width": 20,
+        "dialog_check_height": 20,
+        "dialog_bg_r": 68,
+        "dialog_bg_g": 136,
+        "dialog_bg_b": 187,
+        "dialog_bg_tolerance": 150
     },
     "automation": {
         "exit_target_x": 245,
@@ -53,10 +61,12 @@
         "exit_animation_wait": 2.0,
         "enter_retry_wait": 3.0,
         "move_tolerance": 20,
-        "move_max_duration": 30,
-        "skill_interval_random_range": 20,
+        "move_max_duration": 30.0,
+        "skill_interval_random_range": 20.0,
         "anti_detect_min_moves": 0,
         "anti_detect_max_moves": 2,
-        "anti_detect_interval": 0.1
+        "anti_detect_interval": 0.1,
+        "dialog_close_button_x": 830,
+        "dialog_close_button_y": 466
     }
 }

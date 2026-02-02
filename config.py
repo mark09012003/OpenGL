@@ -49,7 +49,15 @@ class ConfigManager:
                 "color_r_g_ratio": 1.5,
                 "color_r_b_ratio": 1.5,
                 "pixel_gap_tolerance": 2,
-                "character_y_offset": 15
+                "character_y_offset": 15,
+                "dialog_check_x": 500,
+                "dialog_check_y": 300,
+                "dialog_check_width": 200,
+                "dialog_check_height": 100,
+                "dialog_bg_r": 64,
+                "dialog_bg_g": 164,
+                "dialog_bg_b": 223,
+                "dialog_bg_tolerance": 30
             },
             "automation": {
                 "exit_target_x": 250,
@@ -71,7 +79,9 @@ class ConfigManager:
                 "skill_interval_random_range": 20,
                 "anti_detect_min_moves": 0,
                 "anti_detect_max_moves": 2,
-                "anti_detect_interval": 0.1
+                "anti_detect_interval": 0.1,
+                "dialog_close_button_x": 600,
+                "dialog_close_button_y": 400
             },
             "alarm": {
                 "volume": 0.5,

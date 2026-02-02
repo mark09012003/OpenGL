@@ -14,6 +14,8 @@ class DetectionManager:
         self.logger = logger or logging.getLogger(__name__)
         self.last_hp_bar_info = None  # 保存最後一次檢測到的血條信息
         self.all_candidates = []  # 保存所有檢測到的候選（包括未達門檻的）
+        self.last_dialog_rgb = None  # 保存最後一次檢測到的對話框RGB平均值
+        self.last_dialog_match_ratio = None  # 保存最後一次檢測到的匹配比例
         
         # 從配置中讀取檢測參數
         if config and "detection" in config:
@@ -29,6 +31,14 @@ class DetectionManager:
             self.color_r_b_ratio = float(detection_config.get("color_r_b_ratio", 1.5))
             self.pixel_gap_tolerance = int(detection_config.get("pixel_gap_tolerance", 2))
             self.character_y_offset = int(detection_config.get("character_y_offset", 15))
+            self.dialog_check_x = int(detection_config.get("dialog_check_x", 500))
+            self.dialog_check_y = int(detection_config.get("dialog_check_y", 300))
+            self.dialog_check_width = int(detection_config.get("dialog_check_width", 200))
+            self.dialog_check_height = int(detection_config.get("dialog_check_height", 100))
+            self.dialog_bg_r = int(detection_config.get("dialog_bg_r", 64))
+            self.dialog_bg_g = int(detection_config.get("dialog_bg_g", 164))
+            self.dialog_bg_b = int(detection_config.get("dialog_bg_b", 223))
+            self.dialog_bg_tolerance = int(detection_config.get("dialog_bg_tolerance", 30))
         else:
             # 預設值
             self.hp_bar_y = 445
@@ -42,6 +52,14 @@ class DetectionManager:
             self.color_r_b_ratio = 1.5
             self.pixel_gap_tolerance = 2
             self.character_y_offset = 15
+            self.dialog_check_x = 500
+            self.dialog_check_y = 300
+            self.dialog_check_width = 200
+            self.dialog_check_height = 100
+            self.dialog_bg_r = 64
+            self.dialog_bg_g = 164
+            self.dialog_bg_b = 223
+            self.dialog_bg_tolerance = 30
     
     def detect_hp_bar_position(self) -> Optional[Tuple[float, float]]:
         """檢測角色頭頂上方的紅色血條位置，用於判斷人物位置（相對於視窗）"""
@@ -195,5 +213,88 @@ class DetectionManager:
             
         except Exception as e:
             self.logger.error(f"檢查自由市場狀態失敗: {str(e)}")
+            return False
+    
+    def detect_dialog_window(self) -> bool:
+        """檢測提示視窗是否存在（通過檢測指定區域的背景顏色）
+        
+        返回 True 如果檢測到提示視窗，False 否則
+        同時將檢測到的實際RGB平均值保存到 self.last_dialog_rgb
+        """
+        window_handle = self.window_manager.get_window_handle()
+        if not window_handle:
+            return False
+        
+        try:
+            # 獲取視窗位置和大小
+            rect = self.window_manager.get_window_rect()
+            if not rect:
+                return False
+            
+            window_x, window_y, window_width, window_height = rect
+            
+            # 檢查檢測區域是否在視窗範圍內
+            check_x = self.dialog_check_x
+            check_y = self.dialog_check_y
+            check_width = self.dialog_check_width
+            check_height = self.dialog_check_height
+            
+            if (check_x < 0 or check_y < 0 or 
+                check_x + check_width > window_width or 
+                check_y + check_height > window_height):
+                self.logger.warning(f"提示視窗檢測區域超出視窗範圍")
+                return False
+            
+            # 截圖檢測區域
+            screenshot = ImageGrab.grab(bbox=(
+                int(window_x + check_x), 
+                int(window_y + check_y), 
+                int(window_x + check_x + check_width), 
+                int(window_y + check_y + check_height)
+            ))
+            
+            # 轉換為RGB數組
+            img_array = np.array(screenshot)
+            
+            # 提取RGB通道
+            r_channel = img_array[:, :, 0]
+            g_channel = img_array[:, :, 1]
+            b_channel = img_array[:, :, 2]
+            
+            # 檢查像素是否接近配置的背景顏色（允許容差）
+            tolerance = self.dialog_bg_tolerance
+            color_match = (
+                (np.abs(r_channel - self.dialog_bg_r) <= tolerance) &
+                (np.abs(g_channel - self.dialog_bg_g) <= tolerance) &
+                (np.abs(b_channel - self.dialog_bg_b) <= tolerance)
+            )
+            
+            # 計算匹配的像素比例
+            total_pixels = check_width * check_height
+            matched_pixels = np.sum(color_match)
+            match_ratio = matched_pixels / total_pixels if total_pixels > 0 else 0
+            
+            # 計算實際檢測區域的平均RGB值
+            avg_r = int(np.mean(r_channel))
+            avg_g = int(np.mean(g_channel))
+            avg_b = int(np.mean(b_channel))
+            
+            # 保存檢測結果供測試使用
+            self.last_dialog_rgb = (avg_r, avg_g, avg_b)
+            self.last_dialog_match_ratio = match_ratio
+            
+            # 如果匹配比例超過50%，認為檢測到提示視窗
+            threshold = 0.5
+            detected = match_ratio >= threshold
+            
+            if detected:
+                self.logger.info(f"檢測到提示視窗 (匹配比例: {match_ratio:.2%}, 實際RGB: ({avg_r}, {avg_g}, {avg_b}))")
+            else:
+                self.logger.debug(f"未檢測到提示視窗 (匹配比例: {match_ratio:.2%}, 實際RGB: ({avg_r}, {avg_g}, {avg_b}))")
+            
+            return detected
+            
+        except Exception as e:
+            self.logger.error(f"檢測提示視窗失敗: {str(e)}", exc_info=True)
             return False
 

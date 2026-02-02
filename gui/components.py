@@ -187,6 +187,9 @@ def create_action_buttons(parent, app):
     app.overlay_btn = ThemedButton(btn_row, "顯示位置", command=app.toggle_overlay, variant='secondary')
     app.overlay_btn.pack(side="left", fill="x", expand=True, padx=(0, Theme.PADDING_SMALL))
     
+    app.calibration_btn = ThemedButton(btn_row, "校準", command=app.toggle_calibration, variant='secondary')
+    app.calibration_btn.pack(side="left", fill="x", expand=True, padx=(Theme.PADDING_SMALL, Theme.PADDING_SMALL))
+    
     help_btn = ThemedButton(btn_row, "? HELP", command=app.show_faq, variant='secondary')
     help_btn.pack(side="left", fill="x", expand=True, padx=(Theme.PADDING_SMALL, 0))
 
