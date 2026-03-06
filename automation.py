@@ -6,6 +6,119 @@ import logging
 from typing import Optional, Callable, Tuple
 
 
+def get_automation_config_value(config, key, default_value):
+    """從配置中獲取自動化參數值"""
+    if config and "automation" in config:
+        automation_config = config["automation"]
+        return automation_config.get(key, default_value)
+    return default_value
+
+
+def configure_pyautogui_safety():
+    """配置pyautogui安全模式"""
+    pyautogui.FAILSAFE = True
+    pyautogui.PAUSE = 0.1
+
+
+def validate_key(key):
+    """驗證按鍵是否有效"""
+    return key is not None and key != ""
+
+
+def press_key_down(key):
+    """按下按鍵"""
+    pyautogui.keyDown(key)
+
+
+def press_key_up(key):
+    """釋放按鍵"""
+    pyautogui.keyUp(key)
+
+
+def calculate_sleep_chunks(sleep_time, chunk_size=0.1):
+    """計算睡眠分塊數量"""
+    return max(1, int(sleep_time / chunk_size))
+
+
+def calculate_chunk_duration(sleep_time, sleep_chunks):
+    """計算每個分塊的持續時間"""
+    return sleep_time / sleep_chunks
+
+
+def calculate_remaining_time(duration, elapsed):
+    """計算剩餘時間"""
+    return max(0.0, duration - elapsed)
+
+
+def calculate_button_absolute_position(window_x, window_y, button_x, button_y):
+    """計算按鈕的絕對座標"""
+    absolute_x = window_x + button_x
+    absolute_y = window_y + button_y
+    return absolute_x, absolute_y
+
+
+def click_button(button_x, button_y):
+    """點擊按鈕"""
+    pyautogui.click(button_x, button_y)
+
+
+def calculate_exclude_range(target_x, tolerance):
+    """計算排除範圍"""
+    exclude_x_min = target_x - tolerance
+    exclude_x_max = target_x + tolerance
+    return exclude_x_min, exclude_x_max
+
+
+def calculate_distance_to_target(current_x, target_x):
+    """計算到目標位置的距離"""
+    return abs(current_x - target_x)
+
+
+def is_position_reached(current_x, target_x, tolerance):
+    """檢查是否已到達目標位置"""
+    return calculate_distance_to_target(current_x, target_x) <= tolerance
+
+
+def determine_movement_direction(current_x, target_x):
+    """判斷移動方向"""
+    if current_x < target_x:
+        return 'right'
+    elif current_x > target_x:
+        return 'left'
+    else:
+        return None
+
+
+def release_all_movement_keys():
+    """釋放所有移動按鍵"""
+    pyautogui.keyUp('left')
+    pyautogui.keyUp('right')
+
+
+def calculate_skill_interval(base_interval, random_range):
+    """計算技能執行間隔（基礎間隔 ±隨機範圍）"""
+    random_offset = random.uniform(-random_range, random_range)
+    interval = max(1.0, base_interval + random_offset)
+    return interval
+
+
+def generate_random_move_count(min_moves, max_moves):
+    """生成隨機移動次數"""
+    return random.randint(min_moves, max_moves)
+
+
+def get_move_key_for_direction(direction):
+    """根據方向獲取移動按鍵"""
+    return 'left' if direction == "left" else 'right'
+
+
+def calculate_dialog_button_absolute_position(window_x, window_y, button_x, button_y):
+    """計算對話框按鈕的絕對座標"""
+    absolute_x = int(window_x + button_x)
+    absolute_y = int(window_y + button_y)
+    return absolute_x, absolute_y
+
+
 class AutomationManager:
     """自動化管理器"""
     
@@ -38,7 +151,7 @@ class AutomationManager:
             self.move_max_duration = int(automation_config.get("move_max_duration", 30))
             self.skill_interval_random_range = float(automation_config.get("skill_interval_random_range", 20))
             self.anti_detect_min_moves = int(automation_config.get("anti_detect_min_moves", 0))
-            self.anti_detect_max_moves = int(automation_config.get("anti_detect_max_moves", 2))
+            self.anti_detect_max_moves = int(automation_config.get("anti_detect_max_moves", 1))
             self.anti_detect_interval = float(automation_config.get("anti_detect_interval", 0.1))
             self.dialog_close_button_x = int(automation_config.get("dialog_close_button_x", 600))
             self.dialog_close_button_y = int(automation_config.get("dialog_close_button_y", 400))
@@ -62,7 +175,7 @@ class AutomationManager:
             self.move_max_duration = 30
             self.skill_interval_random_range = 20
             self.anti_detect_min_moves = 0
-            self.anti_detect_max_moves = 2
+            self.anti_detect_max_moves = 1
             self.anti_detect_interval = 0.1
             self.dialog_close_button_x = 600
             self.dialog_close_button_y = 400
@@ -70,8 +183,7 @@ class AutomationManager:
             self.dialog_close_button_y = 400
         
         # 設定pyautogui安全模式
-        pyautogui.FAILSAFE = True
-        pyautogui.PAUSE = 0.1
+        configure_pyautogui_safety()
         
         # 跳過等待標誌
         self.skip_wait = False
@@ -93,15 +205,15 @@ class AutomationManager:
             if not self._sleep_with_check(self.key_press_wait):
                 return False
             
-            if not key:
+            if not validate_key(key):
                 return False
             
             # 按壓按鍵後放開（使用配置的持續時間，可中斷）
-            pyautogui.keyDown(key)
+            press_key_down(key)
             if not self._sleep_with_check(self.key_press_duration):
-                pyautogui.keyUp(key)
+                press_key_up(key)
                 return False
-            pyautogui.keyUp(key)
+            press_key_up(key)
             
             if skill_name:
                 self.logger.info(f"已執行{skill_name}")
@@ -140,8 +252,8 @@ class AutomationManager:
                     self.logger.debug(f"循環等待中，剩餘時間: {remaining:.1f} 秒")
             
             # 在 sleep 期間分段檢查，以便及時響應 skip_wait
-            sleep_chunks = max(1, int(sleep_time / 0.1))  # 每0.1秒檢查一次
-            chunk_duration = sleep_time / sleep_chunks
+            sleep_chunks = calculate_sleep_chunks(sleep_time, chunk_size=0.1)  # 每0.1秒檢查一次
+            chunk_duration = calculate_chunk_duration(sleep_time, sleep_chunks)
             
             for _ in range(sleep_chunks):
                 # 檢查是否要跳過等待
@@ -162,7 +274,7 @@ class AutomationManager:
                 
                 # 更新剩餘時間
                 if update_countdown:
-                    remaining = max(0.0, duration - elapsed)
+                    remaining = calculate_remaining_time(duration, elapsed)
                     self.current_wait_remaining = remaining
         
         if update_countdown:
@@ -175,56 +287,64 @@ class AutomationManager:
         self.skip_wait = True
         self.logger.info("請求跳過當前等待時間")
     
-    def click_free_market_button(self) -> bool:
-        """點擊自由市場按鈕"""
+    def click_free_market_button(self) -> str:
+        """點擊自由市場按鈕一次，並檢測結果
+        
+        Returns:
+            'success': 檢測到血條（成功進入自由市場）
+            'dialog': 檢測到確認視窗（角色已在自由市場）
+            'failed': 未檢測到血條也沒檢測到確認視窗（沒有成功進入）
+        """
         if not self.window_manager.is_valid():
-            return False
+            return 'failed'
         
         try:
             if not self.window_manager.bring_to_front():
-                return False
+                return 'failed'
             
             if not self._sleep_with_check(self.button_click_wait):
-                return False
+                return 'failed'
             
             # 獲取視窗位置
             rect = self.window_manager.get_window_rect()
             if not rect:
-                return False
+                return 'failed'
             
             window_x, window_y, _, _ = rect
             
             # 使用配置的自由市場按鈕位置
-            button_x = window_x + self.fm_button_x
-            button_y = window_y + self.fm_button_y
+            button_x, button_y = calculate_button_absolute_position(
+                window_x, window_y, self.fm_button_x, self.fm_button_y
+            )
             
-            # 點擊按鈕（點擊兩次，使用配置的延遲）
+            # 點擊按鈕一次
             self.logger.info(f"準備點擊自由市場按鈕 (按鈕位置: {button_x:.0f}, {button_y:.0f})")
-            pyautogui.click(button_x, button_y)
-            if not self._sleep_with_check(self.button_click_delay):
-                return False
-            pyautogui.click(button_x, button_y)
-            self.logger.info("已點擊自由市場按鈕（兩次）")
+            click_button(button_x, button_y)
             
-            # 點擊後等待1秒，讓過場動畫有緩衝時間，確認視窗有時間出現
-            self.logger.info("等待1秒讓過場動畫完成")
-            if not self._sleep_with_check(1.0):
-                return False
+            # 點擊後等待，讓過場動畫有緩衝時間，確認視窗有時間出現
+            self.logger.info("等待2秒讓過場動畫完成")
+            if not self._sleep_with_check(2.0):
+                return 'failed'
             
-            # 檢查是否有確認視窗出現（如果出現代表這輪執行失敗）
+            # 檢測結果1：檢查是否有確認視窗出現
             detected_dialog = self.detection_manager.detect_dialog_window()
             if detected_dialog:
                 self.logger.warning("點擊自由市場按鈕後檢測到確認視窗，代表角色已在自由市場內")
-                # 關閉確認視窗
-                self.handle_dialog_window(max_retries=3)
-                # 設置標記，表示角色已在自由市場內，下一輪應該執行離開自由市場
-                self.last_entered_free_market = True
-                return False  # 返回 False 表示檢測到確認視窗（已在自由市場內）
+                return 'dialog'
             
-            return True
+            # 檢測結果2：檢查是否檢測到血條（成功進入自由市場）
+            character_pos = self.detection_manager.detect_hp_bar_position()
+            if character_pos is not None:
+                self.logger.info("點擊自由市場按鈕後檢測到血條，成功進入自由市場")
+                return 'success'
+            
+            # 檢測結果3：未檢測到血條也沒檢測到確認視窗
+            self.logger.warning("點擊自由市場按鈕後未檢測到血條也沒檢測到確認視窗，沒有成功進入自由市場")
+            return 'failed'
+            
         except Exception as e:
             self.logger.error(f"點擊自由市場按鈕失敗: {str(e)}")
-            return False
+            return 'failed'
     
     def move_to_target_position(self, target_x: float, tolerance: int = None, 
                                 max_duration: int = None, check_hp_bar_on_fail: bool = False,
@@ -282,12 +402,9 @@ class AutomationManager:
                         # 重新檢測一次
                         character_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=exclude_x_range)
                         if character_pos is None:
-                            # 重新檢測仍然失敗，才終止程式
-                            self.logger.error("重新檢測後仍無法檢測到血條，終止程式")
+                            # 重新檢測仍然失敗，終止流程（可能是角色離開隊伍或檢測錯誤，這是正常終止條件）
+                            self.logger.info("重新檢測後仍無法檢測到血條，可能是角色離開隊伍（正常終止）")
                             self.is_running = False
-                            # 通知GUI顯示錯誤訊息
-                            if hasattr(self, 'on_hp_bar_detection_failed'):
-                                self.on_hp_bar_detection_failed()
                             if current_key:
                                 pyautogui.keyUp(current_key)
                                 current_key = None
@@ -481,10 +598,10 @@ class AutomationManager:
                     stuck_count = 0  # 第一次檢測或沒有移動，重置計數
                 
                 last_character_x = current_x
-                distance = abs(current_x - target_x)
+                distance = calculate_distance_to_target(current_x, target_x)
                 
                 # 如果已經到達目標位置
-                if distance <= tolerance:
+                if is_position_reached(current_x, target_x, tolerance):
                     if current_key:
                         pyautogui.keyUp(current_key)
                         current_key = None
@@ -494,23 +611,24 @@ class AutomationManager:
                     return True
                 
                 # 判斷移動方向
-                if current_x < target_x:
+                direction = determine_movement_direction(current_x, target_x)
+                if direction == 'right':
                     if current_key != 'right':
                         if current_key:
-                            pyautogui.keyUp(current_key)
-                        pyautogui.keyDown('right')
+                            press_key_up(current_key)
+                        press_key_down('right')
                         current_key = 'right'
                         self.logger.debug(f"向右移動 (當前X: {current_x:.0f}, 目標X: {target_x:.0f})")
-                elif current_x > target_x:
+                elif direction == 'left':
                     if current_key != 'left':
                         if current_key:
-                            pyautogui.keyUp(current_key)
-                        pyautogui.keyDown('left')
+                            press_key_up(current_key)
+                        press_key_down('left')
                         current_key = 'left'
                         self.logger.debug(f"向左移動 (當前X: {current_x:.0f}, 目標X: {target_x:.0f})")
                 else:
                     if current_key:
-                        pyautogui.keyUp(current_key)
+                        press_key_up(current_key)
                         current_key = None
                 
                 # 提高判斷頻率，使用更短的間隔（0.1秒）避免移動過頭
@@ -536,6 +654,240 @@ class AutomationManager:
                 pass
             return False
     
+    def exit_free_market_with_position_check(self, target_x: float) -> bool:
+        """離開自由市場（新邏輯：按上鍵一次，檢查血條位置變化）
+        
+        Args:
+            target_x: 離開目標位置
+            
+        Returns:
+            True 如果成功離開，False 如果失敗
+        """
+        if not self.window_manager.is_valid():
+            return False
+        
+        try:
+            if not self.window_manager.bring_to_front():
+                return False
+            
+            self.logger.info("準備離開自由市場（新邏輯：按上鍵一次並檢查位置變化）")
+            
+            # 計算排除的X範圍（離開位置 ±50像素）
+            exclude_tolerance = 50
+            exclude_x_min, exclude_x_max = calculate_exclude_range(target_x, exclude_tolerance)
+            
+            # 移動到目標位置
+            self.logger.info(f"移動到目標位置 X={target_x} 以離開自由市場")
+            if not self.move_to_target_position(target_x, check_hp_bar_on_fail=True, exclude_x_range=(exclude_x_min, exclude_x_max)):
+                # 移動失敗可能是因為檢測不到血條（角色離開隊伍或檢測錯誤）
+                # 這是正常終止條件，不是錯誤
+                self.logger.info("移動到目標位置失敗：未檢測到血條，可能是角色離開隊伍（正常終止）")
+                self.is_running = False
+                return False
+            
+            # 等待一小段時間
+            if not self._sleep_with_check(self.exit_wait):
+                return False
+            
+            # 記錄按上鍵前的位置
+            before_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=(exclude_x_min, exclude_x_max))
+            if before_pos is None:
+                # 檢測不到血條可能是角色離開隊伍或檢測錯誤，這是正常終止條件
+                self.logger.info("無法檢測到血條位置，可能是角色離開隊伍（正常終止）")
+                self.is_running = False
+                return False
+            
+            before_x, _ = before_pos
+            self.logger.info(f"按上鍵前血條位置: x={before_x:.0f}")
+            
+            # 按上鍵一次
+            self.logger.info("按上鍵離開自由市場（第一次）")
+            press_key_down('up')
+            if not self._sleep_with_check(self.exit_key_duration):
+                press_key_up('up')
+                return False
+            press_key_up('up')
+            
+            # 等待0.5秒後檢查血條位置是否有變化
+            if not self._sleep_with_check(0.5):
+                return False
+            
+            # 檢查血條位置是否變化
+            after_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=(exclude_x_min, exclude_x_max))
+            if after_pos is None:
+                # 檢測不到血條，可能已離開自由市場
+                self.logger.info("檢測不到血條，可能已成功離開自由市場")
+                # 再次確認是否在自由市場內
+                still_in_fm = self.detection_manager.check_free_market_entered()
+                if not still_in_fm:
+                    self.logger.info("確認已成功離開自由市場")
+                    return True
+                else:
+                    self.logger.warning("檢測不到血條但仍在自由市場，可能是血條檢測問題")
+                    return False
+            
+            after_x, _ = after_pos
+            position_change = abs(after_x - before_x)
+            position_tolerance = 5  # 位置變化容差（像素）
+            
+            self.logger.info(f"按上鍵後血條位置: x={after_x:.0f}，位置變化: {position_change:.0f}px")
+            
+            # 如果位置沒有變化（仍在原地）
+            if position_change <= position_tolerance:
+                self.logger.warning(f"血條位置沒有變化（仍在 x={after_x:.0f}），可能原因：1.向上鍵沒有執行完成 2.血條並非玩家位置")
+                
+                # 判斷原因1：再次執行一次向上鍵
+                self.logger.info("判斷原因1：再次執行一次向上鍵")
+                press_key_down('up')
+                if not self._sleep_with_check(self.exit_key_duration):
+                    press_key_up('up')
+                    return False
+                press_key_up('up')
+                
+                # 再次等待0.5秒後檢查
+                if not self._sleep_with_check(0.5):
+                    return False
+                
+                # 再次檢查血條位置
+                after_pos2 = self.detection_manager.detect_hp_bar_position(exclude_x_range=(exclude_x_min, exclude_x_max))
+                if after_pos2 is None:
+                    # 檢測不到血條，可能已離開
+                    still_in_fm = self.detection_manager.check_free_market_entered()
+                    if not still_in_fm:
+                        self.logger.info("再次按上鍵後確認已成功離開自由市場（原因1解決）")
+                        return True
+                    else:
+                        self.logger.warning("檢測不到血條但仍在自由市場")
+                        # 繼續判斷原因2
+                else:
+                    after_x2, _ = after_pos2
+                    position_change2 = abs(after_x2 - before_x)
+                    self.logger.info(f"再次按上鍵後血條位置: x={after_x2:.0f}，位置變化: {position_change2:.0f}px")
+                    
+                    if position_change2 > position_tolerance:
+                        # 位置有變化，可能已離開或正在離開
+                        still_in_fm = self.detection_manager.check_free_market_entered()
+                        if not still_in_fm:
+                            self.logger.info("再次按上鍵後確認已成功離開自由市場（原因1解決）")
+                            return True
+                        else:
+                            self.logger.warning("位置有變化但仍在自由市場，繼續判斷原因2")
+                    else:
+                        # 位置仍然沒有變化，判斷為原因2
+                        self.logger.warning("再次按上鍵後位置仍然沒有變化，判斷為原因2：血條並非玩家位置")
+                
+                # 判斷原因2：血條並非玩家位置，尋找下一個目標血條位置
+                self.logger.warning("判斷原因2：血條並非玩家位置，尋找下一個目標血條位置")
+                
+                # 排除當前血條位置（±30像素範圍）
+                exclude_current_x_min = after_x - 30
+                exclude_current_x_max = after_x + 30
+                
+                # 合併原有的排除範圍和當前血條位置的排除範圍
+                combined_exclude_min = min(exclude_x_min, exclude_current_x_min)
+                combined_exclude_max = max(exclude_x_max, exclude_current_x_max)
+                
+                # 清除位置記錄，強制重新檢測
+                self.detection_manager.last_character_x = None
+                self.detection_manager.last_hp_bar_info = None
+                
+                # 等待一小段時間後重新檢測
+                if not self._sleep_with_check(0.2):
+                    return False
+                
+                # 尋找下一個目標血條位置（排除當前位置）
+                next_pos = self.detection_manager.detect_hp_bar_position(exclude_x_range=(combined_exclude_min, combined_exclude_max))
+                
+                if next_pos is None:
+                    # 沒有下一個目標血條位置，終止執行流程
+                    self.logger.error("無法離開自由市場：沒有找到下一個目標血條位置")
+                    self.is_running = False
+                    # 通知GUI顯示錯誤訊息
+                    if hasattr(self, 'on_hp_bar_detection_failed'):
+                        self.on_hp_bar_detection_failed()
+                    return False
+                else:
+                    # 找到下一個血條位置，更新位置記錄
+                    next_x, _ = next_pos
+                    self.logger.info(f"找到下一個目標血條位置: x={next_x:.0f}，更新位置記錄")
+                    # 位置記錄已在 detect_hp_bar_position 中更新
+                    
+                    # 檢查新血條位置是否在離開位置附近
+                    position_tolerance = 30  # 位置容差（像素）
+                    distance_to_target = abs(next_x - target_x)
+                    
+                    if distance_to_target > position_tolerance:
+                        # 新血條位置不在離開位置，需要先移動到新血條位置，再移動回離開位置
+                        self.logger.info(f"新血條位置 (x={next_x:.0f}) 不在離開位置 (x={target_x:.0f})，距離: {distance_to_target:.0f}px")
+                        self.logger.info("先移動到新血條位置，再移動回離開位置")
+                        
+                        # 移動到新血條位置
+                        if not self.move_to_target_position(next_x, check_hp_bar_on_fail=True):
+                            self.logger.warning(f"移動到新血條位置 (x={next_x:.0f}) 失敗")
+                            return False
+                        
+                        # 等待一小段時間
+                        if not self._sleep_with_check(0.2):
+                            return False
+                        
+                        # 移動回離開位置
+                        self.logger.info(f"移動回離開位置 (x={target_x:.0f})")
+                        if not self.move_to_target_position(target_x, check_hp_bar_on_fail=True, exclude_x_range=(exclude_x_min, exclude_x_max)):
+                            self.logger.warning(f"移動回離開位置 (x={target_x:.0f}) 失敗")
+                            return False
+                        
+                        # 等待一小段時間
+                        if not self._sleep_with_check(self.exit_wait):
+                            return False
+                    else:
+                        # 新血條位置在離開位置附近，不需要移動
+                        self.logger.info(f"新血條位置 (x={next_x:.0f}) 在離開位置附近 (x={target_x:.0f})，距離: {distance_to_target:.0f}px，不需要移動")
+                    
+                    # 再次按上鍵嘗試離開
+                    self.logger.info("在找到新血條位置後，再次按上鍵嘗試離開")
+                    press_key_down('up')
+                    if not self._sleep_with_check(self.exit_key_duration):
+                        press_key_up('up')
+                        return False
+                    press_key_up('up')
+                    
+                    # 等待後檢查
+                    if not self._sleep_with_check(0.5):
+                        return False
+                    
+                    # 檢查是否已離開
+                    still_in_fm = self.detection_manager.check_free_market_entered()
+                    if not still_in_fm:
+                        self.logger.info("找到新血條位置後成功離開自由市場")
+                        return True
+                    else:
+                        self.logger.error("找到新血條位置後仍然無法離開自由市場")
+                        return False
+            else:
+                # 位置有變化，檢查是否已離開自由市場
+                still_in_fm = self.detection_manager.check_free_market_entered()
+                if not still_in_fm:
+                    self.logger.info("按上鍵後位置有變化且已成功離開自由市場")
+                    return True
+                else:
+                    self.logger.warning("按上鍵後位置有變化但仍在自由市場，可能需要等待動畫完成")
+                    # 等待離開動畫完成
+                    if not self._sleep_with_check(self.exit_animation_wait):
+                        return False
+                    
+                    # 再次檢查
+                    still_in_fm = self.detection_manager.check_free_market_entered()
+                    if not still_in_fm:
+                        self.logger.info("等待動畫完成後確認已成功離開自由市場")
+                        return True
+                    else:
+                        self.logger.warning("等待動畫完成後仍在自由市場")
+                        return False
+            
+        except Exception as e:
+            self.logger.error(f"離開自由市場失敗: {str(e)}")
+            return False
+    
     def exit_free_market(self, skip_check=False) -> bool:
         """離開自由市場（移動到定點後按上鍵）
         
@@ -556,8 +908,7 @@ class AutomationManager:
             
             # 計算排除的X範圍（離開位置 ±50像素），在第一次移動時就將離開位置附近的血條優先級設為最低
             exclude_tolerance = 50  # 排除範圍容差（像素）
-            exclude_x_min = target_x - exclude_tolerance
-            exclude_x_max = target_x + exclude_tolerance
+            exclude_x_min, exclude_x_max = calculate_exclude_range(target_x, exclude_tolerance)
             
             # 移動到目標位置（離開自由市場時，檢測不到血條要終止）
             # 在移動時就將離開位置附近的血條優先級設為最低，避免誤判其他人的血條
@@ -687,76 +1038,85 @@ class AutomationManager:
             self.logger.error(f"離開自由市場失敗: {str(e)}")
             return False
     
-    def enter_free_market(self, max_retries: int = 5, check_time: float = 3.0) -> bool:
-        """進入自由市場，如果失敗則重試"""
+    def enter_free_market(self, max_retries: int = 3, check_time: float = 3.0) -> bool:
+        """進入自由市場，點擊一次按鈕後檢測結果，如果失敗則重試（最多3次）
+        
+        Args:
+            max_retries: 最大重試次數（預設3次）
+            check_time: 檢查時間（保留用於向後兼容，但不再使用）
+        
+        Returns:
+            True 如果成功進入，False 如果失敗
+        """
         retry_count = 0
         
         while retry_count < max_retries and self.is_running:
+            # 點擊一次按鈕
             click_result = self.click_free_market_button()
-            if not click_result:
-                # 如果點擊失敗是因為檢測到確認視窗（已在 click_free_market_button 中設置 last_entered_free_market = True），
-                # 立即執行離開自由市場，然後返回 False，讓循環繼續執行技能和進入自由市場的流程
-                if self.last_entered_free_market:
-                    self.logger.info("檢測到確認視窗，代表角色已在自由市場內，立即執行離開自由市場")
-                    # 立即執行離開自由市場（跳過驗證，因為確認視窗場景下不需要驗證）
-                    if self.exit_free_market(skip_check=True):
-                        self.logger.info("已成功離開自由市場，將重新執行整輪邏輯（離開 -> 施放技能 -> 進入）")
-                        self.last_entered_free_market = False
-                        self.just_exited_free_market = True  # 設置標記，表示剛剛離開，需要重新執行整輪
-                        return False  # 返回 False，觸發重新執行整輪邏輯
-                    else:
-                        self.logger.error("離開自由市場失敗")
-                        return False
-                
-                retry_count += 1
-                if retry_count < max_retries:
-                    self.logger.info(f"點擊失敗，{self.enter_retry_wait}秒後重試 ({retry_count}/{max_retries})")
-                    if not self._sleep_with_check(self.enter_retry_wait):
-                        return False
-                continue
             
-            # 點擊按鈕後，確認視窗的檢測已經在 click_free_market_button 中完成
-            # 如果 click_free_market_button 返回 False，代表檢測到確認視窗，這輪失敗
-            # 這裡只需要等待並檢查是否成功進入自由市場
-            self.logger.info(f"等待 {check_time} 秒檢查是否進入自由市場")
-            if not self._sleep_with_check(check_time):
-                return False
-            
-            # 檢查是否成功進入
-            entered = self.detection_manager.check_free_market_entered()
-            if entered:
+            # 結果1：檢測到血條（成功進入自由市場）
+            if click_result == 'success':
                 self.logger.info("成功進入自由市場")
                 self.last_entered_free_market = True
                 return True
-            else:
+            
+            # 結果2：檢測到確認視窗（角色已在自由市場）
+            elif click_result == 'dialog':
+                self.logger.warning("檢測到確認視窗，代表角色已在自由市場內")
+                # 關閉確認視窗
+                if self.handle_dialog_window(max_retries=3):
+                    self.logger.info("已關閉確認視窗")
+                    # 設置標記，表示角色已在自由市場內，下一輪應該執行離開自由市場
+                    self.last_entered_free_market = True
+                    return True  # 返回 True 表示已在自由市場內
+                else:
+                    self.logger.error("關閉確認視窗失敗")
+                    return False
+            
+            # 結果3：未檢測到血條也沒檢測到確認視窗（沒有成功進入）
+            elif click_result == 'failed':
                 retry_count += 1
                 if retry_count < max_retries:
                     self.logger.warning(f"未成功進入自由市場，{self.enter_retry_wait}秒後重試 ({retry_count}/{max_retries})")
                     if not self._sleep_with_check(self.enter_retry_wait):
                         return False
                 else:
-                    self.logger.error(f"進入自由市場失敗，已重試 {max_retries} 次")
+                    # 3次沒有成功進入自由，中斷流程
+                    self.logger.error(f"進入自由市場失敗，已重試 {max_retries} 次，中斷流程")
+                    self.is_running = False
+                    # 通知GUI顯示錯誤訊息
+                    if hasattr(self, 'on_enter_free_market_failed'):
+                        self.on_enter_free_market_failed()
+                    return False
+            else:
+                # 未知結果
+                self.logger.error(f"點擊自由市場按鈕返回未知結果: {click_result}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    if not self._sleep_with_check(self.enter_retry_wait):
+                        return False
+                else:
+                    self.logger.error(f"進入自由市場失敗，已重試 {max_retries} 次，中斷流程")
+                    self.is_running = False
                     return False
         
         return False
     
     def get_skill_interval(self, base_interval: float) -> float:
         """獲取技能執行間隔（基礎間隔 ±配置的隨機範圍）"""
-        random_offset = random.uniform(-self.skill_interval_random_range, self.skill_interval_random_range)
-        interval = max(1.0, base_interval + random_offset)
-        return interval
+        return calculate_skill_interval(base_interval, self.skill_interval_random_range)
     
     def execute_anti_detection_movement(self, direction: str, move_time: float, 
                                         num_moves: int = None) -> None:
         """執行防偵測移動（使用配置的移動次數範圍）"""
         if num_moves is None:
-            num_moves = random.randint(self.anti_detect_min_moves, self.anti_detect_max_moves)
+            num_moves = generate_random_move_count(self.anti_detect_min_moves, self.anti_detect_max_moves)
         
         if num_moves == 0:
             return
         
         # 始終使用指定的方向，不交替
-        move_key = 'left' if direction == "left" else 'right'
+        move_key = get_move_key_for_direction(direction)
         
         self.logger.info(f"防偵測移動：執行 {num_moves} 次，方向：{direction}")
         
@@ -812,8 +1172,9 @@ class AutomationManager:
             window_x, window_y, _, _ = rect
             
             # 計算絕對座標
-            absolute_x = int(window_x + self.dialog_close_button_x)
-            absolute_y = int(window_y + self.dialog_close_button_y)
+            absolute_x, absolute_y = calculate_dialog_button_absolute_position(
+                window_x, window_y, self.dialog_close_button_x, self.dialog_close_button_y
+            )
             
             # 點擊關閉按鈕
             try:

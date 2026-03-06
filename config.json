@@ -20,14 +20,14 @@
         "auto_stop_time": "11:26",
         "enter_fm": true,
         "use_floating_window": true,
-        "move_direction": "left",
+        "move_direction": "right",
         "fixed_move": true,
         "anti_detect_after_fm": true
     },
     "detection": {
         "hp_bar_y": 445,
         "hp_bar_min_width": 15,
-        "hp_bar_max_width": 45,
+        "hp_bar_max_width": 80,
         "color_r_min": 150,
         "color_r_max": 255,
         "color_g_max": 100,
@@ -64,7 +64,7 @@
         "move_max_duration": 30.0,
         "skill_interval_random_range": 20.0,
         "anti_detect_min_moves": 0,
-        "anti_detect_max_moves": 2,
+        "anti_detect_max_moves": 1,
         "anti_detect_interval": 0.1,
         "dialog_close_button_x": 830,
         "dialog_close_button_y": 466

@@ -5,6 +5,82 @@ import logging
 from typing import Optional, Dict, Tuple
 
 
+def is_window_visible(hwnd):
+    """檢查視窗是否可見"""
+    return win32gui.IsWindowVisible(hwnd)
+
+
+def get_window_title(hwnd):
+    """獲取視窗標題"""
+    return win32gui.GetWindowText(hwnd)
+
+
+def add_window_to_list(hwnd, title, windows):
+    """將視窗添加到列表"""
+    if title:
+        windows.append((hwnd, title))
+
+
+def filter_windows_by_prefix(windows, filter_prefix):
+    """根據前綴過濾視窗列表"""
+    filtered_windows = []
+    for hwnd, title in windows:
+        if title.startswith(filter_prefix):
+            filtered_windows.append((hwnd, title))
+    return filtered_windows
+
+
+def validate_window_handle(hwnd):
+    """驗證視窗句柄是否有效"""
+    return hwnd and win32gui.IsWindow(hwnd)
+
+
+def convert_rect_to_position_size(rect):
+    """將視窗矩形轉換為位置和大小"""
+    return (rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1])
+
+
+def check_window_minimized(hwnd):
+    """檢查視窗是否最小化"""
+    return win32gui.IsIconic(hwnd)
+
+
+def restore_minimized_window(hwnd):
+    """還原最小化的視窗"""
+    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
+
+def set_foreground_window(hwnd):
+    """設置前景視窗"""
+    win32gui.SetForegroundWindow(hwnd)
+
+
+def bring_window_to_top(hwnd):
+    """將視窗置頂"""
+    win32gui.BringWindowToTop(hwnd)
+
+
+def validate_window_dimensions(width, height):
+    """驗證視窗尺寸是否有效"""
+    return width > 0 and height > 0
+
+
+def get_window_position(rect):
+    """從矩形獲取視窗位置"""
+    return rect[0], rect[1]
+
+
+def set_window_position_and_size(hwnd, x, y, width, height):
+    """設置視窗位置和大小"""
+    win32gui.SetWindowPos(
+        hwnd,
+        win32con.HWND_TOP,
+        x, y,
+        width, height,
+        win32con.SWP_SHOWWINDOW
+    )
+
+
 class WindowManager:
     """視窗管理器"""
     
@@ -15,10 +91,9 @@ class WindowManager:
     
     def enum_windows_callback(self, hwnd, windows):
         """列舉視窗的回調函數"""
-        if win32gui.IsWindowVisible(hwnd):
-            title = win32gui.GetWindowText(hwnd)
-            if title:
-                windows.append((hwnd, title))
+        if is_window_visible(hwnd):
+            title = get_window_title(hwnd)
+            add_window_to_list(hwnd, title, windows)
         return True
     
     def get_windows(self, filter_prefix="MapleStory Worlds"):
@@ -27,16 +102,13 @@ class WindowManager:
         win32gui.EnumWindows(self.enum_windows_callback, windows)
         
         # 過濾視窗
-        filtered_windows = []
-        for hwnd, title in windows:
-            if title.startswith(filter_prefix):
-                filtered_windows.append((hwnd, title))
+        filtered_windows = filter_windows_by_prefix(windows, filter_prefix)
         
         return filtered_windows
     
     def set_window(self, hwnd):
         """設置當前操作的視窗"""
-        if hwnd and win32gui.IsWindow(hwnd):
+        if validate_window_handle(hwnd):
             self.window_handle = hwnd
             return True
         return False
@@ -52,7 +124,7 @@ class WindowManager:
         
         try:
             rect = win32gui.GetWindowRect(self.window_handle)
-            return (rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1])
+            return convert_rect_to_position_size(rect)
         except Exception as e:
             self.logger.error(f"獲取視窗位置失敗: {str(e)}")
             return None
@@ -66,11 +138,11 @@ class WindowManager:
             if not win32gui.IsWindow(self.window_handle):
                 return False
             
-            if win32gui.IsIconic(self.window_handle):
-                win32gui.ShowWindow(self.window_handle, win32con.SW_RESTORE)
+            if check_window_minimized(self.window_handle):
+                restore_minimized_window(self.window_handle)
             
-            win32gui.SetForegroundWindow(self.window_handle)
-            win32gui.BringWindowToTop(self.window_handle)
+            set_foreground_window(self.window_handle)
+            bring_window_to_top(self.window_handle)
             
             return True
         except Exception as e:
@@ -83,20 +155,14 @@ class WindowManager:
             return False
         
         try:
-            if width <= 0 or height <= 0:
+            if not validate_window_dimensions(width, height):
                 self.logger.error("寬度和高度必須大於0")
                 return False
             
             rect = win32gui.GetWindowRect(self.window_handle)
-            x, y = rect[0], rect[1]
+            x, y = get_window_position(rect)
             
-            win32gui.SetWindowPos(
-                self.window_handle,
-                win32con.HWND_TOP,
-                x, y,
-                width, height,
-                win32con.SWP_SHOWWINDOW
-            )
+            set_window_position_and_size(self.window_handle, x, y, width, height)
             
             self.logger.info(f"視窗大小已設定為 {width}×{height}")
             return True

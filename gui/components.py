@@ -46,23 +46,27 @@ def create_skill_section(parent, app):
     skill_grid = ThemedFrame(frame)
     skill_grid.pack(fill="x", pady=Theme.PADDING_SMALL)
     
-    # 第一行：祈禱和天使祝福
-    ThemedLabel(skill_grid, "祈禱:", width=12, anchor="w").grid(row=0, column=0, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
+    # 第一行：技能1和技能2
+    ThemedLabel(skill_grid, "技能1:", width=12, anchor="w").grid(row=0, column=0, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
     app.prayer_key_var = tk.StringVar(value="f1")
     prayer_entry = ThemedEntry(skill_grid, textvariable=app.prayer_key_var, width=12)
     prayer_entry.grid(row=0, column=1, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL)
     
-    ThemedLabel(skill_grid, "天使祝福:", width=12, anchor="w").grid(row=0, column=2, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
+    # 技能2（可選擇是否施放）
+    app.skill2_enabled_var = tk.BooleanVar(value=True)
+    skill2_checkbox = ttk.Checkbutton(skill_grid, text="技能2:", variable=app.skill2_enabled_var,
+                                     style='TCheckbutton', width=12)
+    skill2_checkbox.grid(row=0, column=2, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL, sticky="w")
     app.angel_blessing_var = tk.StringVar(value="f2")
     angel_entry = ThemedEntry(skill_grid, textvariable=app.angel_blessing_var, width=12)
     angel_entry.grid(row=0, column=3, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL)
     
-    # 第二行：自訂技能
+    # 第二行：技能3和技能4
     row2 = ThemedFrame(skill_grid)
     row2.grid(row=1, column=0, columnspan=4, sticky="ew", padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL)
     
     app.custom_skill1_var = tk.BooleanVar()
-    ttk.Checkbutton(row2, text="自訂技能1", variable=app.custom_skill1_var,
+    ttk.Checkbutton(row2, text="技能3:", variable=app.custom_skill1_var,
                    style='TCheckbutton', command=app.toggle_custom_skill1,
                    width=12).pack(side="left", padx=(0, Theme.PADDING_MEDIUM))
     app.custom_skill1_key_var = tk.StringVar(value="f3")
@@ -70,7 +74,7 @@ def create_skill_section(parent, app):
     app.custom_skill1_entry.pack_forget()
     
     app.custom_skill2_var = tk.BooleanVar()
-    ttk.Checkbutton(row2, text="自訂技能2", variable=app.custom_skill2_var,
+    ttk.Checkbutton(row2, text="技能4:", variable=app.custom_skill2_var,
                    style='TCheckbutton', command=app.toggle_custom_skill2,
                    width=12).pack(side="left", padx=(0, Theme.PADDING_MEDIUM))
     app.custom_skill2_key_var = tk.StringVar(value="f4")

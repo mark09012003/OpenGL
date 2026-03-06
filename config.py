@@ -4,13 +4,9 @@ import os
 import logging
 
 
-class ConfigManager:
-    """配置管理器"""
-    
-    def __init__(self, config_file="config.json", logger=None):
-        self.config_file = config_file
-        self.logger = logger or logging.getLogger(__name__)
-        self.default_config = {
+def create_default_config():
+    """創建預設配置字典"""
+    return {
             "window": "MapleStory Worlds-Artale (繁體中文版)",
             "skills": {
                 "prayer_key": "1",
@@ -81,7 +77,7 @@ class ConfigManager:
                 "move_max_duration": 30.0,
                 "skill_interval_random_range": 20.0,
                 "anti_detect_min_moves": 0,
-                "anti_detect_max_moves": 2,
+                "anti_detect_max_moves": 1,
                 "anti_detect_interval": 0.1,
                 "dialog_close_button_x": 830,
                 "dialog_close_button_y": 466
@@ -90,12 +86,61 @@ class ConfigManager:
                 "volume": 0.5,
             }
         }
+
+
+def check_config_file_exists(config_file):
+    """檢查配置檔案是否存在"""
+    return os.path.exists(config_file)
+
+
+def read_config_file(config_file):
+    """讀取配置檔案內容"""
+    with open(config_file, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+def create_config_copy(config):
+    """創建配置的副本"""
+    return config.copy()
+
+
+def merge_top_level_config(default_config, loaded_config):
+    """合併頂層配置"""
+    merged_config = create_config_copy(default_config)
+    merged_config.update(loaded_config)
+    return merged_config
+
+
+def get_nested_config_keys():
+    """獲取需要合併的嵌套配置鍵列表"""
+    return ["skills", "parameters", "detection", "automation", "alarm"]
+
+
+def merge_nested_config(merged_config, loaded_config, nested_keys):
+    """合併嵌套配置"""
+    for key in nested_keys:
+        if key in loaded_config:
+            merged_config[key].update(loaded_config[key])
+
+
+def write_config_file(config_file, config_data):
+    """寫入配置檔案"""
+    with open(config_file, 'w', encoding='utf-8') as f:
+        json.dump(config_data, f, indent=4, ensure_ascii=False)
+
+
+class ConfigManager:
+    """配置管理器"""
+    
+    def __init__(self, config_file="config.json", logger=None):
+        self.config_file = config_file
+        self.logger = logger or logging.getLogger(__name__)
+        self.default_config = create_default_config()
     
     def save(self, config_data):
         """保存配置到檔案"""
         try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(config_data, f, indent=4, ensure_ascii=False)
+            write_config_file(self.config_file, config_data)
             self.logger.info("配置已保存")
             return True
         except Exception as e:
@@ -105,29 +150,26 @@ class ConfigManager:
     def load(self):
         """從檔案載入配置"""
         try:
-            if not os.path.exists(self.config_file):
+            if not check_config_file_exists(self.config_file):
                 self.logger.info("配置檔案不存在，使用預設值")
-                return self.default_config.copy()
+                return create_config_copy(self.default_config)
             
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                config = json.load(f)
+            loaded_config = read_config_file(self.config_file)
             
             # 合併預設值，確保所有鍵都存在
-            merged_config = self.default_config.copy()
-            merged_config.update(config)
+            merged_config = merge_top_level_config(self.default_config, loaded_config)
             
             # 合併嵌套字典
-            for key in ["skills", "parameters", "detection", "automation", "alarm"]:
-                if key in config:
-                    merged_config[key].update(config[key])
+            nested_keys = get_nested_config_keys()
+            merge_nested_config(merged_config, loaded_config, nested_keys)
             
             self.logger.info("配置已載入")
             return merged_config
         except Exception as e:
             self.logger.error(f"載入配置失敗: {str(e)}")
-            return self.default_config.copy()
+            return create_config_copy(self.default_config)
     
     def get_default(self):
         """獲取預設配置"""
-        return self.default_config.copy()
+        return create_config_copy(self.default_config)
 

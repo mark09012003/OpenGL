@@ -800,7 +800,7 @@ class MapleStoryAutoPrayerGUI:
         create_automation_param_row(automation_left, "移動容差", "move_tolerance", 20)
         create_automation_param_row(automation_left, "最大移動時間(秒)", "move_max_duration", 30)
         create_automation_param_row(automation_left, "防偵測最小移動", "anti_detect_min_moves", 0)
-        create_automation_param_row(automation_left, "防偵測最大移動", "anti_detect_max_moves", 2)
+        create_automation_param_row(automation_left, "防偵測最大移動", "anti_detect_max_moves", 1)
         create_automation_param_row(automation_left, "防偵測間隔(秒)", "anti_detect_interval", 0.1)
         
         # 右列：時間和等待相關
@@ -2077,7 +2077,7 @@ class MapleStoryAutoPrayerGUI:
         faq_text = """使用說明：
 
 1. 選擇視窗：從下拉選單選擇遊戲視窗
-2. 設定技能：配置祈禱、天使祝福等技能按鍵
+2. 設定技能：配置技能1、技能2、技能3、技能4等技能按鍵
 3. 設定參數：配置自由市場待機時間等參數
 4. 開始自動化：點擊 START 按鈕開始
 
@@ -2111,6 +2111,7 @@ class MapleStoryAutoPrayerGUI:
         self.is_running = True
         self.automation_manager.is_running = True
         self.automation_manager.on_hp_bar_detection_failed = self.on_hp_bar_detection_failed
+        self.automation_manager.on_enter_free_market_failed = self.on_enter_free_market_failed
         
         # 重置上次進入自由市場的標誌，確保開始時直接施放技能
         self.last_entered_free_market = False
@@ -2289,13 +2290,42 @@ class MapleStoryAutoPrayerGUI:
         """血條檢測失敗回調"""
         self.logger.error("血條檢測失敗，終止程式")
         
-        # 如果主視窗被隱藏（懸浮視窗模式），使用懸浮視窗來顯示消息和停止
+        # 立即設置停止標誌，確保自動化循環能及時退出
+        self.is_running = False
+        self.automation_manager.is_running = False
+        
+        # 使用 after() 延遲執行停止操作和消息框，避免阻塞
+        # 先停止自動化，再顯示消息框（使用較長的延遲，確保停止操作先完成）
         if self.is_floating and self.floating_window:
-            self.floating_window.after(0, lambda: messagebox.showerror("錯誤", "無法檢測到血條，程式已終止\n請檢查遊戲視窗是否正確顯示"))
-            self.floating_window.after(0, self.stop_automation)
+            # 先停止自動化
+            self.floating_window.after(10, self.stop_automation)
+            # 延遲顯示消息框，避免阻塞停止操作
+            self.floating_window.after(100, lambda: messagebox.showerror("錯誤", "無法檢測到血條，程式已終止\n請檢查遊戲視窗是否正確顯示"))
         else:
-            self.root.after(0, lambda: messagebox.showerror("錯誤", "無法檢測到血條，程式已終止\n請檢查遊戲視窗是否正確顯示"))
-            self.root.after(0, self.stop_automation)
+            # 先停止自動化
+            self.root.after(10, self.stop_automation)
+            # 延遲顯示消息框，避免阻塞停止操作
+            self.root.after(100, lambda: messagebox.showerror("錯誤", "無法檢測到血條，程式已終止\n請檢查遊戲視窗是否正確顯示"))
+    
+    def on_enter_free_market_failed(self):
+        """進入自由市場失敗回調"""
+        self.logger.error("進入自由市場失敗，終止程式")
+        
+        # 立即設置停止標誌，確保自動化循環能及時退出
+        self.is_running = False
+        self.automation_manager.is_running = False
+        
+        # 使用 after() 延遲執行停止操作和消息框，避免阻塞
+        if self.is_floating and self.floating_window:
+            # 先停止自動化
+            self.floating_window.after(10, self.stop_automation)
+            # 延遲顯示消息框
+            self.floating_window.after(100, lambda: messagebox.showerror("錯誤", "無法進入自由市場，已重試3次仍失敗\n程式已終止"))
+        else:
+            # 先停止自動化
+            self.root.after(10, self.stop_automation)
+            # 延遲顯示消息框
+            self.root.after(100, lambda: messagebox.showerror("錯誤", "無法進入自由市場，已重試3次仍失敗\n程式已終止"))
     
     def automation_loop(self):
         """自動化循環 - 可隨時終止"""
@@ -2305,24 +2335,13 @@ class MapleStoryAutoPrayerGUI:
                 if self.last_entered_free_market:
                     self.last_entered_free_market = False
                     
-                    # 移動到目標位置（使用配置的目標位置和容差）
+                    # 使用新的離開自由市場邏輯（按上鍵一次，檢查血條位置變化）
                     if self.is_running:
                         target_x = self.automation_manager.exit_target_x
-                        result = self.automation_manager.move_to_target_position(target_x)
+                        result = self.automation_manager.exit_free_market_with_position_check(target_x)
                         if not result:
-                            # 移動失敗（可能是血條檢測失敗）
-                            break
-                    
-                    # 向上按鍵（點擊兩次）
-                    if self.is_running:
-                        self.automation_manager.send_key_press('up', "向上移動（第一次）")
-                        if not self.automation_manager._sleep_with_check(0.5):
-                            break
-                        self.automation_manager.send_key_press('up', "向上移動（第二次）")
-                    
-                    # 等待1秒
-                    if self.is_running:
-                        if not self.automation_manager._sleep_with_check(1.0):
+                            # 離開失敗（可能是血條檢測失敗或無法離開）
+                            self.logger.error("離開自由市場失敗，終止自動化循環")
                             break
                     
                     # 防偵測移動
@@ -2371,37 +2390,59 @@ class MapleStoryAutoPrayerGUI:
                         if not self.automation_manager._sleep_with_check(0.1):
                             break
                 
+                # 檢查是否在自由市場中（在執行技能前）
+                # 如果在自由市場中，需要先離開自由市場，因為在自由市場中無法執行技能
+                if self.is_running:
+                    is_in_free_market = self.automation_manager.detection_manager.check_free_market_entered()
+                    if is_in_free_market:
+                        self.logger.info("檢測到角色在自由市場中，先離開自由市場再執行技能")
+                        # 移動到目標位置
+                        target_x = self.automation_manager.exit_target_x
+                        result = self.automation_manager.exit_free_market_with_position_check(target_x)
+                        if not result:
+                            # 離開失敗（可能是血條檢測失敗或無法離開）
+                            self.logger.info("離開自由市場失敗，終止自動化循環")
+                            break
+                        
+                        # 防偵測移動（如果啟用）
+                        if self.is_running and hasattr(self, 'anti_detect_after_fm_var') and self.anti_detect_after_fm_var.get():
+                            direction = self.move_direction_var.get() if hasattr(self, 'move_direction_var') else "left"
+                            left_time = float(self.left_move_time_var.get()) if hasattr(self, 'left_move_time_var') else 0.1
+                            right_time = float(self.right_move_time_var.get()) if hasattr(self, 'right_move_time_var') else 0.1
+                            move_time = left_time if direction == "left" else right_time
+                            self.automation_manager.execute_anti_detection_movement(direction, move_time)
+                
                 # 執行技能
                 if self.is_running:
-                    # 祈禱
+                    # 技能1 (必須執行)
                     prayer_key = self.prayer_key_var.get() if hasattr(self, 'prayer_key_var') else "f1"
-                    self.automation_manager.send_key_press(prayer_key, "祈禱")
+                    self.automation_manager.send_key_press(prayer_key, "技能1")
                     
                     # 技能間隔
                     interval = float(self.blessing_interval_var.get()) if hasattr(self, 'blessing_interval_var') else 0.5
                     if not self.automation_manager._sleep_with_check(interval):
                         break
                 
-                # 天使祝福
-                if self.is_running:
+                # 技能2 (可選擇是否施放)
+                if self.is_running and hasattr(self, 'skill2_enabled_var') and self.skill2_enabled_var.get():
                     angel_key = self.angel_blessing_var.get() if hasattr(self, 'angel_blessing_var') else "f2"
-                    self.automation_manager.send_key_press(angel_key, "天使祝福")
+                    self.automation_manager.send_key_press(angel_key, "技能2")
                     
                     if not self.automation_manager._sleep_with_check(interval):
                         break
                 
-                # 自訂技能1
+                # 技能3 (可選擇是否施放)
                 if self.is_running and hasattr(self, 'custom_skill1_var') and self.custom_skill1_var.get():
                     skill1_key = self.custom_skill1_key_var.get() if hasattr(self, 'custom_skill1_key_var') else "f3"
-                    self.automation_manager.send_key_press(skill1_key, "自訂技能1")
+                    self.automation_manager.send_key_press(skill1_key, "技能3")
                     
                     if not self.automation_manager._sleep_with_check(interval):
                         break
                 
-                # 自訂技能2
+                # 技能4 (可選擇是否施放)
                 if self.is_running and hasattr(self, 'custom_skill2_var') and self.custom_skill2_var.get():
                     skill2_key = self.custom_skill2_key_var.get() if hasattr(self, 'custom_skill2_key_var') else "f4"
-                    self.automation_manager.send_key_press(skill2_key, "自訂技能2")
+                    self.automation_manager.send_key_press(skill2_key, "技能4")
                 
                 # 進入自由市場（如果啟用）
                 if self.is_running and hasattr(self, 'enter_fm_var') and self.enter_fm_var.get():
@@ -2422,27 +2463,28 @@ class MapleStoryAutoPrayerGUI:
                                 break
                             # 重新執行技能
                             prayer_key = self.prayer_key_var.get() if hasattr(self, 'prayer_key_var') else "f1"
-                            self.automation_manager.send_key_press(prayer_key, "祈禱")
+                            self.automation_manager.send_key_press(prayer_key, "技能1")
                             interval = float(self.blessing_interval_var.get()) if hasattr(self, 'blessing_interval_var') else 0.5
                             if not self.automation_manager._sleep_with_check(interval):
                                 break
-                            angel_key = self.angel_blessing_var.get() if hasattr(self, 'angel_blessing_var') else "f2"
-                            self.automation_manager.send_key_press(angel_key, "天使祝福")
-                            if not self.automation_manager._sleep_with_check(interval):
-                                break
+                            if hasattr(self, 'skill2_enabled_var') and self.skill2_enabled_var.get():
+                                angel_key = self.angel_blessing_var.get() if hasattr(self, 'angel_blessing_var') else "f2"
+                                self.automation_manager.send_key_press(angel_key, "技能2")
+                                if not self.automation_manager._sleep_with_check(interval):
+                                    break
                             if hasattr(self, 'custom_skill1_var') and self.custom_skill1_var.get():
                                 skill1_key = self.custom_skill1_key_var.get() if hasattr(self, 'custom_skill1_key_var') else "f3"
-                                self.automation_manager.send_key_press(skill1_key, "自訂技能1")
+                                self.automation_manager.send_key_press(skill1_key, "技能3")
                                 if not self.automation_manager._sleep_with_check(interval):
                                     break
                             if hasattr(self, 'custom_skill2_var') and self.custom_skill2_var.get():
                                 skill2_key = self.custom_skill2_key_var.get() if hasattr(self, 'custom_skill2_key_var') else "f4"
-                                self.automation_manager.send_key_press(skill2_key, "自訂技能2")
+                                self.automation_manager.send_key_press(skill2_key, "技能4")
                     
                     fm_wait = float(self.fm_wait_var.get()) if hasattr(self, 'fm_wait_var') else 230.0
                     fm_check_time = float(self.fm_check_time_var.get()) if hasattr(self, 'fm_check_time_var') else 3.0
                     
-                    entered = self.automation_manager.enter_free_market(max_retries=5, check_time=fm_check_time)
+                    entered = self.automation_manager.enter_free_market(max_retries=3, check_time=fm_check_time)
                     if not entered:
                         # 檢查是否剛剛離開自由市場（需要重新執行整輪邏輯）
                         if self.automation_manager.just_exited_free_market:
@@ -2456,25 +2498,26 @@ class MapleStoryAutoPrayerGUI:
                             
                             # 重新施放技能
                             prayer_key = self.prayer_key_var.get() if hasattr(self, 'prayer_key_var') else "f1"
-                            self.automation_manager.send_key_press(prayer_key, "祈禱")
+                            self.automation_manager.send_key_press(prayer_key, "技能1")
                             interval = float(self.blessing_interval_var.get()) if hasattr(self, 'blessing_interval_var') else 0.5
                             if not self.automation_manager._sleep_with_check(interval):
                                 break
-                            angel_key = self.angel_blessing_var.get() if hasattr(self, 'angel_blessing_var') else "f2"
-                            self.automation_manager.send_key_press(angel_key, "天使祝福")
-                            if not self.automation_manager._sleep_with_check(interval):
-                                break
+                            if hasattr(self, 'skill2_enabled_var') and self.skill2_enabled_var.get():
+                                angel_key = self.angel_blessing_var.get() if hasattr(self, 'angel_blessing_var') else "f2"
+                                self.automation_manager.send_key_press(angel_key, "技能2")
+                                if not self.automation_manager._sleep_with_check(interval):
+                                    break
                             if hasattr(self, 'custom_skill1_var') and self.custom_skill1_var.get():
                                 skill1_key = self.custom_skill1_key_var.get() if hasattr(self, 'custom_skill1_key_var') else "f3"
-                                self.automation_manager.send_key_press(skill1_key, "自訂技能1")
+                                self.automation_manager.send_key_press(skill1_key, "技能3")
                                 if not self.automation_manager._sleep_with_check(interval):
                                     break
                             if hasattr(self, 'custom_skill2_var') and self.custom_skill2_var.get():
                                 skill2_key = self.custom_skill2_key_var.get() if hasattr(self, 'custom_skill2_key_var') else "f4"
-                                self.automation_manager.send_key_press(skill2_key, "自訂技能2")
+                                self.automation_manager.send_key_press(skill2_key, "技能4")
                             
                             # 重新嘗試進入自由市場
-                            entered = self.automation_manager.enter_free_market(max_retries=5, check_time=fm_check_time)
+                            entered = self.automation_manager.enter_free_market(max_retries=3, check_time=fm_check_time)
                             if entered:
                                 self.last_entered_free_market = True
                         else:
@@ -2488,16 +2531,17 @@ class MapleStoryAutoPrayerGUI:
                                     break
                                 # 重新施放技能
                                 prayer_key = self.prayer_key_var.get() if hasattr(self, 'prayer_key_var') else "f1"
-                                self.automation_manager.send_key_press(prayer_key, "祈禱")
+                                self.automation_manager.send_key_press(prayer_key, "技能1")
                                 interval = float(self.blessing_interval_var.get()) if hasattr(self, 'blessing_interval_var') else 0.5
                                 if not self.automation_manager._sleep_with_check(interval):
                                     break
-                                angel_key = self.angel_blessing_var.get() if hasattr(self, 'angel_blessing_var') else "f2"
-                                self.automation_manager.send_key_press(angel_key, "天使祝福")
+                                if hasattr(self, 'skill2_enabled_var') and self.skill2_enabled_var.get():
+                                    angel_key = self.angel_blessing_var.get() if hasattr(self, 'angel_blessing_var') else "f2"
+                                    self.automation_manager.send_key_press(angel_key, "技能2")
                                 if not self.automation_manager._sleep_with_check(interval):
                                     break
                                 # 重新嘗試進入自由市場
-                                entered = self.automation_manager.enter_free_market(max_retries=5, check_time=fm_check_time)
+                                entered = self.automation_manager.enter_free_market(max_retries=3, check_time=fm_check_time)
                                 if entered:
                                     self.last_entered_free_market = True
                     else:

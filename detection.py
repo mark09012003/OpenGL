@@ -6,6 +6,222 @@ from PIL import ImageGrab
 from typing import Optional, Tuple
 
 
+def get_detection_config_value(config, key, default_value):
+    """從配置中獲取檢測參數值"""
+    if config and "detection" in config:
+        detection_config = config["detection"]
+        return detection_config.get(key, default_value)
+    return default_value
+
+
+def extract_rgb_channels(img_array):
+    """從圖像數組中提取RGB通道"""
+    r_channel = img_array[:, :, 0]
+    g_channel = img_array[:, :, 1]
+    b_channel = img_array[:, :, 2]
+    return r_channel, g_channel, b_channel
+
+
+def create_red_mask(r_channel, g_channel, b_channel, 
+                   color_r_min, color_r_max, color_g_max, color_b_max,
+                   color_r_g_ratio, color_r_b_ratio):
+    """創建紅色血條的顏色遮罩"""
+    red_mask = (r_channel >= color_r_min) & (r_channel <= color_r_max) & \
+              (g_channel < color_g_max) & (b_channel < color_b_max) & \
+              (r_channel > g_channel * color_r_g_ratio) & (r_channel > b_channel * color_r_b_ratio)
+    return red_mask
+
+
+def validate_target_y_coordinate(target_y, window_height):
+    """驗證目標Y座標是否在視窗範圍內"""
+    return 0 <= target_y < window_height
+
+
+def find_red_pixels_in_row(red_mask, target_y):
+    """在指定Y軸位置查找紅色像素"""
+    return np.where(red_mask[target_y, :])[0]
+
+
+def create_candidate_interval(start_x, end_x, y):
+    """創建候選區間字典"""
+    width = end_x - start_x + 1
+    return {
+        'y': y,
+        'x_start': start_x,
+        'x_end': end_x,
+        'width': width
+    }
+
+
+def find_continuous_red_intervals(row_red_pixels, y, pixel_gap_tolerance):
+    """找出連續的紅色像素區間"""
+    candidates = []
+    
+    if len(row_red_pixels) == 0:
+        return candidates
+    
+    start_x = row_red_pixels[0]
+    end_x = row_red_pixels[0]
+    
+    for i in range(1, len(row_red_pixels)):
+        if row_red_pixels[i] - end_x <= pixel_gap_tolerance:
+            end_x = row_red_pixels[i]
+        else:
+            # 找到一個連續的紅色區間，記錄它
+            candidates.append(create_candidate_interval(start_x, end_x, y))
+            start_x = row_red_pixels[i]
+            end_x = row_red_pixels[i]
+    
+    # 處理最後一個區間
+    candidates.append(create_candidate_interval(start_x, end_x, y))
+    
+    return candidates
+
+
+def filter_candidates_by_width(candidates, min_width, max_width):
+    """根據寬度過濾候選"""
+    return [c for c in candidates if min_width <= c['width'] <= max_width]
+
+
+def is_candidate_in_exclude_range(candidate, exclude_x_range):
+    """檢查候選是否在排除範圍內"""
+    if exclude_x_range is None:
+        return False
+    exclude_x_min, exclude_x_max = exclude_x_range
+    x_start = candidate['x_start']
+    return exclude_x_min <= x_start <= exclude_x_max
+
+
+def calculate_distance(x1, x2):
+    """計算兩個X座標之間的距離"""
+    return abs(x1 - x2)
+
+
+def is_candidate_close_to_last_position(candidate, last_character_x, character_x_tolerance):
+    """檢查候選是否接近上次位置"""
+    if last_character_x is None:
+        return False
+    distance = calculate_distance(candidate['x_start'], last_character_x)
+    return distance <= character_x_tolerance
+
+
+def separate_candidates_by_priority(candidates, exclude_x_range, last_character_x, character_x_tolerance):
+    """將候選分為高優先級和低優先級"""
+    valid_candidates = []
+    low_priority_candidates = []
+    
+    for candidate in candidates:
+        if exclude_x_range is not None and is_candidate_in_exclude_range(candidate, exclude_x_range):
+            if is_candidate_close_to_last_position(candidate, last_character_x, character_x_tolerance):
+                valid_candidates.append(candidate)
+            else:
+                low_priority_candidates.append(candidate)
+        else:
+            valid_candidates.append(candidate)
+    
+    return valid_candidates, low_priority_candidates
+
+
+def find_closest_candidate(candidates, last_character_x, character_x_tolerance):
+    """找到與上次位置最接近的候選"""
+    closest_candidate = None
+    closest_distance = float('inf')
+    
+    for candidate in candidates:
+        x_start = candidate['x_start']
+        distance = calculate_distance(x_start, last_character_x)
+        
+        if distance <= character_x_tolerance:
+            if distance < closest_distance:
+                closest_distance = distance
+                closest_candidate = candidate
+    
+    return closest_candidate, closest_distance
+
+
+def calculate_character_position(candidate, character_y_offset):
+    """計算角色位置"""
+    character_x = candidate['x_start']
+    character_y = candidate['y'] + character_y_offset
+    return character_x, character_y
+
+
+def create_hp_bar_info(candidate, character_x, character_y):
+    """創建血條信息字典"""
+    return {
+        'x_start': candidate['x_start'],
+        'x_end': candidate['x_end'],
+        'y': candidate['y'],
+        'width': candidate['width'],
+        'character_x': character_x,
+        'character_y': character_y
+    }
+
+
+def grab_window_screenshot(window_x, window_y, window_width, window_height):
+    """截取視窗截圖"""
+    return ImageGrab.grab(bbox=(
+        int(window_x), 
+        int(window_y), 
+        int(window_x + window_width), 
+        int(window_y + window_height)
+    ))
+
+
+def convert_screenshot_to_array(screenshot):
+    """將截圖轉換為數組"""
+    return np.array(screenshot)
+
+
+def check_dialog_region_in_bounds(check_x, check_y, check_width, check_height, window_width, window_height):
+    """檢查對話框檢測區域是否在視窗範圍內"""
+    return (check_x >= 0 and check_y >= 0 and 
+            check_x + check_width <= window_width and 
+            check_y + check_height <= window_height)
+
+
+def grab_dialog_region_screenshot(window_x, window_y, check_x, check_y, check_width, check_height):
+    """截取對話框檢測區域的截圖"""
+    return ImageGrab.grab(bbox=(
+        int(window_x + check_x), 
+        int(window_y + check_y), 
+        int(window_x + check_x + check_width), 
+        int(window_y + check_y + check_height)
+    ))
+
+
+def calculate_color_match_ratio(img_array, target_r, target_g, target_b, tolerance):
+    """計算顏色匹配比例"""
+    r_channel = img_array[:, :, 0]
+    g_channel = img_array[:, :, 1]
+    b_channel = img_array[:, :, 2]
+    
+    color_match = (
+        (np.abs(r_channel - target_r) <= tolerance) &
+        (np.abs(g_channel - target_g) <= tolerance) &
+        (np.abs(b_channel - target_b) <= tolerance)
+    )
+    
+    total_pixels = img_array.shape[0] * img_array.shape[1]
+    matched_pixels = np.sum(color_match)
+    match_ratio = matched_pixels / total_pixels if total_pixels > 0 else 0
+    
+    return match_ratio
+
+
+def calculate_average_rgb(img_array):
+    """計算圖像的平均RGB值"""
+    r_channel = img_array[:, :, 0]
+    g_channel = img_array[:, :, 1]
+    b_channel = img_array[:, :, 2]
+    
+    avg_r = int(np.mean(r_channel))
+    avg_g = int(np.mean(g_channel))
+    avg_b = int(np.mean(b_channel))
+    
+    return avg_r, avg_g, avg_b
+
+
 class DetectionManager:
     """圖像檢測管理器"""
     
@@ -101,23 +317,53 @@ class DetectionManager:
             
             # 使用配置的 Y 軸位置檢查血條
             target_y = self.hp_bar_y
+            y_tolerance = 5  # Y軸誤差容差（像素）
             
             # 檢查目標 Y 軸是否在視窗範圍內
             if target_y < 0 or target_y >= window_height:
                 self.logger.warning(f"目標Y座標 {target_y} 超出視窗範圍 (0-{window_height-1})")
                 return None
             
-            # 只在配置的 Y 軸位置檢查紅色像素
+            # 先在配置的 Y 軸位置檢查紅色像素
             row_red_pixels = np.where(red_mask[target_y, :])[0]
+            detected_y = target_y
             
+            # 如果當前Y軸未檢測到紅色像素，擴大檢測範圍為±5px
             if len(row_red_pixels) == 0:
-                self.logger.warning(f"在 y={target_y} 未檢測到紅色像素")
-                self.last_hp_bar_info = None  # 清空血條信息
-                self.all_candidates = []  # 清空候選列表
-                return None
+                self.logger.debug(f"在 y={target_y} 未檢測到紅色像素，擴大檢測範圍為±{y_tolerance}px")
+                
+                # 在±5px範圍內搜索，按距離優先順序檢查（±1px, ±2px, ±3px, ±4px, ±5px）
+                found_pixels = False
+                for offset in range(1, y_tolerance + 1):
+                    # 優先檢查上方（target_y - offset）
+                    if target_y - offset >= 0:
+                        upper_pixels = np.where(red_mask[target_y - offset, :])[0]
+                        if len(upper_pixels) > 0:
+                            row_red_pixels = upper_pixels
+                            detected_y = target_y - offset
+                            found_pixels = True
+                            self.logger.info(f"在 y={detected_y} (配置位置上方{offset}px) 檢測到紅色像素")
+                            break
+                    
+                    # 然後檢查下方（target_y + offset）
+                    if target_y + offset < window_height:
+                        lower_pixels = np.where(red_mask[target_y + offset, :])[0]
+                        if len(lower_pixels) > 0:
+                            row_red_pixels = lower_pixels
+                            detected_y = target_y + offset
+                            found_pixels = True
+                            self.logger.info(f"在 y={detected_y} (配置位置下方{offset}px) 檢測到紅色像素")
+                            break
+                
+                # 如果擴大範圍後仍未檢測到
+                if not found_pixels:
+                    self.logger.warning(f"在 y={target_y}±{y_tolerance}px 範圍內未檢測到紅色像素")
+                    self.last_hp_bar_info = None  # 清空血條信息
+                    self.all_candidates = []  # 清空候選列表
+                    return None
             
-            # 找出目標 Y 軸位置這一行中所有連續的紅色像素區間
-            y = target_y
+            # 找出檢測到的 Y 軸位置這一行中所有連續的紅色像素區間
+            y = detected_y  # 使用實際檢測到的Y軸位置
             candidates = []
             
             if len(row_red_pixels) > 0:
