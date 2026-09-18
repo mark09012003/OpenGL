@@ -1,5 +1,7 @@
 """主入口文件"""
 import tkinter as tk
+import sys
+from pathlib import Path
 from utils import setup_logging
 from config import ConfigManager
 from window_manager import WindowManager
@@ -23,7 +25,14 @@ def create_root_window():
 
 def initialize_config_manager(logger):
     """初始化配置管理器"""
-    config_manager = ConfigManager(logger=logger)
+    # A one-file executable extracts bundled files to a temporary directory.
+    # Keep the editable configuration beside the executable instead.
+    app_dir = (
+        Path(sys.executable).resolve().parent
+        if getattr(sys, "frozen", False)
+        else Path(__file__).resolve().parent
+    )
+    config_manager = ConfigManager(config_file=str(app_dir / "config.json"), logger=logger)
     return config_manager
 
 

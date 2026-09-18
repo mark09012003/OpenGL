@@ -6,9 +6,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('config.json', '.'),  # 包含配置文件
-    ],
+    datas=[],  # 可編輯的 config.json 由 build.bat 放在執行檔旁
     hiddenimports=[
         'win32gui',
         'win32con',

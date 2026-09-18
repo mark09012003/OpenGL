@@ -1,131 +1,96 @@
-"""GUI基礎組件模組 - 基於主題創建標準化組件"""
+"""Reusable widgets for the dark desktop interface."""
 import tkinter as tk
 from tkinter import ttk
 from gui.theme import Theme
 
 
+def parent_background(parent):
+    try:
+        return parent.cget('bg')
+    except (AttributeError, tk.TclError):
+        return Theme.BACKGROUND_PRIMARY
+
+
 class ThemedFrame(tk.Frame):
-    """主題化Frame"""
     def __init__(self, parent, **kwargs):
-        bg = kwargs.pop('bg', Theme.BACKGROUND_PRIMARY)
-        super().__init__(parent, bg=bg, **kwargs)
+        kwargs.setdefault('bg', parent_background(parent))
+        super().__init__(parent, **kwargs)
 
 
 class ThemedLabel(tk.Label):
-    """主題化Label"""
-    def __init__(self, parent, text="", size=None, weight='normal', 
-                 color=None, **kwargs):
-        bg = kwargs.pop('bg', Theme.BACKGROUND_PRIMARY)
-        fg = kwargs.pop('fg', color or Theme.TEXT_PRIMARY)
-        font = kwargs.pop('font', Theme.get_font_config(size, weight))
-        super().__init__(parent, text=text, bg=bg, fg=fg, font=font, **kwargs)
+    def __init__(self, parent, text='', size=None, weight='normal', color=None, **kwargs):
+        kwargs.setdefault('bg', parent_background(parent))
+        kwargs.setdefault('fg', color or Theme.TEXT_PRIMARY)
+        kwargs.setdefault('font', Theme.get_font_config(size, weight))
+        super().__init__(parent, text=text, **kwargs)
 
 
 class ThemedButton(tk.Button):
-    """主題化Button"""
-    def __init__(self, parent, text="", command=None,
-                 variant='secondary', size=None, weight='bold', **kwargs):
-        # 根據變體選擇顏色
-        if variant == 'primary':
-            bg = Theme.BUTTON_PRIMARY
-            fg = Theme.BUTTON_PRIMARY_TEXT
-            active_bg = Theme.BUTTON_PRIMARY_HOVER
-            active_fg = Theme.BUTTON_PRIMARY_TEXT
-        elif variant == 'danger':
-            bg = Theme.BUTTON_DANGER
-            fg = Theme.BUTTON_DANGER_TEXT
-            active_bg = Theme.BUTTON_DANGER_HOVER
-            active_fg = Theme.BUTTON_DANGER_TEXT
-        else:  # secondary (default)
-            bg = Theme.BUTTON_SECONDARY
-            fg = Theme.BUTTON_SECONDARY_TEXT
-            active_bg = Theme.BUTTON_SECONDARY_HOVER
-            active_fg = Theme.TEXT_HIGHLIGHT
-        
-        # 處理 size 參數
-        if size is not None:
-            font = Theme.get_font_config(size, weight)
-        else:
-            font = kwargs.pop('font', Theme.get_font_config(Theme.FONT_SIZE_LARGE, 'bold'))
-        
-        relief = kwargs.pop('relief', 'flat')
-        cursor = kwargs.pop('cursor', 'hand2')
-        bd = kwargs.pop('bd', 0)
-        highlightthickness = kwargs.pop('highlightthickness', 0)
-        
-        super().__init__(
-            parent, text=text, command=command,
-            bg=bg, fg=fg, font=font,
-            relief=relief, cursor=cursor, bd=bd,
-            activebackground=active_bg, activeforeground=active_fg,
-            highlightthickness=highlightthickness, **kwargs
-        )
+    COLORS = {
+        'primary': (Theme.BUTTON_PRIMARY, Theme.BUTTON_PRIMARY_TEXT, Theme.BUTTON_PRIMARY_HOVER),
+        'secondary': (Theme.BUTTON_SECONDARY, Theme.BUTTON_SECONDARY_TEXT, Theme.BUTTON_SECONDARY_HOVER),
+        'danger': (Theme.BUTTON_DANGER, Theme.BUTTON_DANGER_TEXT, Theme.BUTTON_DANGER_HOVER),
+    }
+
+    def __init__(self, parent, text='', command=None, variant='secondary', size=None,
+                 weight='bold', **kwargs):
+        bg, fg, active_bg = self.COLORS.get(variant, self.COLORS['secondary'])
+        kwargs.setdefault('font', Theme.get_font_config(size or Theme.FONT_SIZE_NORMAL, weight))
+        kwargs.setdefault('relief', 'flat')
+        kwargs.setdefault('cursor', 'hand2')
+        kwargs.setdefault('bd', 0)
+        kwargs.setdefault('highlightthickness', 0)
+        kwargs.setdefault('padx', 12)
+        kwargs.setdefault('pady', 9)
+        super().__init__(parent, text=text, command=command, bg=bg, fg=fg,
+                         activebackground=active_bg, activeforeground=fg, **kwargs)
+        self._normal_bg = bg
+        self._hover_bg = active_bg
+        self.bind('<Enter>', self._on_enter, add='+')
+        self.bind('<Leave>', self._on_leave, add='+')
+
+    def _on_enter(self, _event):
+        if self.cget('state') != 'disabled':
+            self.configure(bg=self._hover_bg)
+
+    def _on_leave(self, _event):
+        self.configure(bg=self._normal_bg)
 
 
 class ThemedEntry(ttk.Entry):
-    """主題化Entry（使用ttk.Entry，樣式已在styles.py中配置）"""
     pass
 
 
 class ThemedText(tk.Text):
-    """主題化Text"""
     def __init__(self, parent, **kwargs):
-        bg = kwargs.pop('bg', Theme.LOG_BACKGROUND)
-        fg = kwargs.pop('fg', Theme.LOG_TEXT)
-        font = kwargs.pop('font', Theme.get_font_config(Theme.FONT_SIZE_NORMAL))
-        insertbackground = kwargs.pop('insertbackground', Theme.INPUT_CARET)
-        selectbackground = kwargs.pop('selectbackground', Theme.BACKGROUND_TERTIARY)
-        selectforeground = kwargs.pop('selectforeground', Theme.TEXT_PRIMARY)
-        
-        super().__init__(
-            parent, bg=bg, fg=fg, font=font,
-            insertbackground=insertbackground,
-            selectbackground=selectbackground,
-            selectforeground=selectforeground,
-            **kwargs
-        )
+        kwargs.setdefault('bg', Theme.LOG_BACKGROUND)
+        kwargs.setdefault('fg', Theme.LOG_TEXT)
+        kwargs.setdefault('font', (Theme.FONT_MONO, Theme.FONT_SIZE_SMALL))
+        kwargs.setdefault('insertbackground', Theme.INPUT_CARET)
+        kwargs.setdefault('selectbackground', Theme.BACKGROUND_TERTIARY)
+        kwargs.setdefault('selectforeground', Theme.TEXT_PRIMARY)
+        super().__init__(parent, **kwargs)
 
 
 class ThemedLabelFrame(ttk.LabelFrame):
-    """主題化LabelFrame（使用ttk.LabelFrame，樣式已在styles.py中配置）"""
     pass
 
 
 class SectionFrame:
-    """區塊框架 - 使用tk.Frame替代ttk.LabelFrame以完全控制背景色"""
-    def __init__(self, parent, title="", padding=Theme.PADDING_MEDIUM):
-        # 使用tk.Frame替代ttk.LabelFrame
-        self.frame = ThemedFrame(parent)
-        self.frame.pack(fill="x", pady=(0, Theme.PADDING_MEDIUM))
-        
-        # 創建標題標籤
-        self.title_label = ThemedLabel(
-            self.frame,
-            text=f"▸ {title}",
-            size=Theme.FONT_SIZE_NORMAL,
-            weight='bold',
-            color=Theme.TEXT_PRIMARY
-        )
-        self.title_label.pack(anchor="w", padx=Theme.PADDING_NORMAL, pady=(Theme.PADDING_NORMAL, Theme.PADDING_SMALL))
-        
-        # 創建內容容器
-        self.content_frame = ThemedFrame(self.frame)
-        self.content_frame.pack(fill="both", expand=True, padx=Theme.PADDING_NORMAL, pady=(0, Theme.PADDING_NORMAL))
-        
-        # 添加邊框效果（使用Frame模擬邊框）
-        self._create_border()
-    
-    def _create_border(self):
-        """創建邊框效果"""
-        # 在frame底部創建一個帶顏色的邊框線
-        border_frame = tk.Frame(
-            self.frame,
-            bg=Theme.BORDER_PRIMARY,
-            height=1
-        )
-        border_frame.pack(fill="x", side="bottom", padx=0, pady=0)
-    
-    def get_frame(self):
-        """獲取內容Frame（用於放置子控件）"""
-        return self.content_frame
+    """Flat raised panel with one structural border and a quiet heading."""
+    def __init__(self, parent, title='', padding=Theme.PADDING_MEDIUM):
+        self.frame = tk.Frame(parent, bg=Theme.BORDER_SECONDARY, bd=0)
+        self.frame.pack(fill='x', pady=(0, Theme.PADDING_MEDIUM))
+        surface = tk.Frame(self.frame, bg=Theme.BACKGROUND_SECONDARY)
+        surface.pack(fill='both', expand=True, padx=1, pady=1)
+        header = tk.Frame(surface, bg=Theme.BACKGROUND_SECONDARY)
+        header.pack(fill='x', padx=padding, pady=(padding, 6))
+        tk.Frame(header, bg=Theme.TEXT_HIGHLIGHT, width=3, height=16).pack(side='left', padx=(0, 9))
+        self.title_label = ThemedLabel(header, text=title, size=Theme.FONT_SIZE_NORMAL,
+                                       weight='bold', color=Theme.TEXT_PRIMARY)
+        self.title_label.pack(side='left')
+        self.content_frame = tk.Frame(surface, bg=Theme.BACKGROUND_SECONDARY)
+        self.content_frame.pack(fill='both', expand=True, padx=padding, pady=(0, padding))
 
+    def get_frame(self):
+        return self.content_frame

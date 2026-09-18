@@ -1,12 +1,11 @@
-"""GUI布局模組 - 定義標準化布局系統"""
+"""Responsive fixed-window layout for the control dashboard."""
 import tkinter as tk
+from tkinter import ttk
 from gui.theme import Theme
-from gui.widgets import ThemedFrame, ThemedLabel, SectionFrame
+from gui.widgets import ThemedFrame, ThemedLabel
 
 
 class LayoutManager:
-    """布局管理器 - 管理整體布局結構"""
-    
     def __init__(self, root):
         self.root = root
         self.main_container = None
@@ -15,133 +14,95 @@ class LayoutManager:
         self.left_panel = None
         self.right_panel = None
         self.bottom_panel = None
-    
+
     def create_main_layout(self):
-        """創建主布局結構"""
-        # 主容器
-        self.main_container = ThemedFrame(self.root)
-        self.main_container.pack(
-            fill="both", expand=True, 
-            padx=Theme.PADDING_LARGE, 
-            pady=Theme.PADDING_LARGE
-        )
-        
-        # 標題區域
+        self.scroller = tk.Canvas(self.root, bg=Theme.BACKGROUND_PRIMARY,
+                                  highlightthickness=0, borderwidth=0)
+        self.scrollbar = ttk.Scrollbar(self.root, orient='vertical', command=self.scroller.yview)
+        self.scroller.configure(yscrollcommand=self.scrollbar.set)
+        self.scrollbar.pack(side='right', fill='y')
+        self.scroller.pack(side='left', fill='both', expand=True)
+        self.main_container = ThemedFrame(self.scroller, bg=Theme.BACKGROUND_PRIMARY)
+        self._window_id = self.scroller.create_window((Theme.PADDING_LARGE, Theme.PADDING_LARGE),
+                                                       window=self.main_container, anchor='nw')
+        self.main_container.bind('<Configure>', self._update_scroll_region)
+        self.scroller.bind('<Configure>', self._fit_content_width)
+        self.root.bind('<MouseWheel>', self._on_mouse_wheel, add='+')
         self.create_title_section()
-        
-        # 頂部區域（左右分欄）
         self.create_top_section()
-        
         return self.main_container
-    
+
+    def _update_scroll_region(self, _event=None):
+        self.scroller.configure(scrollregion=self.scroller.bbox('all'))
+
+    def _fit_content_width(self, event):
+        self.scroller.itemconfigure(self._window_id,
+                                    width=max(1, event.width - 2 * Theme.PADDING_LARGE))
+        self._update_scroll_region()
+
+    def _on_mouse_wheel(self, event):
+        if self.scroller.winfo_height() < self.main_container.winfo_reqheight():
+            self.scroller.yview_scroll(-1 if event.delta > 0 else 1, 'units')
+
     def create_title_section(self):
-        """創建標題區域"""
-        self.title_frame = ThemedFrame(self.main_container)
-        self.title_frame.pack(fill="x", pady=(0, Theme.PADDING_LARGE))
-        
-        title_label = ThemedLabel(
-            self.title_frame, 
-            text="MAPLESTORY 自動化控制系統",
-            size=Theme.FONT_SIZE_TITLE,
-            weight='bold',
-            color=Theme.TEXT_PRIMARY
-        )
-        title_label.pack()
-        
-        subtitle = ThemedLabel(
-            self.title_frame,
-            text="AUTOMATION CONTROL SYSTEM",
-            size=Theme.FONT_SIZE_SUBTITLE,
-            color=Theme.TEXT_SECONDARY
-        )
-        subtitle.pack()
-    
+        self.title_frame = tk.Frame(self.main_container, bg=Theme.BACKGROUND_PRIMARY)
+        self.title_frame.pack(fill='x', pady=(0, Theme.PADDING_LARGE))
+        brand = tk.Frame(self.title_frame, bg=Theme.BACKGROUND_PRIMARY)
+        brand.pack(side='left', fill='x', expand=True)
+        tk.Frame(brand, bg=Theme.TEXT_HIGHLIGHT, width=4, height=52).pack(side='left', padx=(0, 14))
+        titles = tk.Frame(brand, bg=Theme.BACKGROUND_PRIMARY)
+        titles.pack(side='left')
+        ThemedLabel(titles, 'ARTALE / CONTROL', size=Theme.FONT_SIZE_TITLE,
+                    weight='bold', color=Theme.TEXT_PRIMARY).pack(anchor='w')
+        ThemedLabel(titles, 'AUTOMATION CONSOLE  ·  WINDOWS',
+                    size=Theme.FONT_SIZE_SUBTITLE, color=Theme.TEXT_SECONDARY).pack(anchor='w', pady=(3, 0))
+        badge = tk.Frame(self.title_frame, bg=Theme.BACKGROUND_SECONDARY,
+                         highlightbackground=Theme.BORDER_PRIMARY, highlightthickness=1)
+        badge.pack(side='right', padx=(12, 0))
+        ThemedLabel(badge, '●  SYSTEM READY', size=Theme.FONT_SIZE_SMALL,
+                    weight='bold', color=Theme.STATUS_SUCCESS,
+                    bg=Theme.BACKGROUND_SECONDARY).pack(padx=12, pady=9)
+        tk.Frame(self.main_container, bg=Theme.BORDER_SECONDARY, height=1).pack(fill='x', pady=(0, 16))
+
     def create_top_section(self):
-        """創建頂部區域（左右分欄）"""
-        self.top_container = ThemedFrame(self.main_container)
-        self.top_container.pack(fill="both", expand=True, pady=(0, Theme.PADDING_MEDIUM))
-        
-        # 左側面板
-        self.left_panel = ThemedFrame(self.top_container)
-        self.left_panel.pack(side="left", fill="both", expand=True, padx=(0, Theme.PADDING_LARGE))
-        
-        # 右側面板
-        self.right_panel = ThemedFrame(self.top_container, width=300)
-        self.right_panel.pack(side="right", fill="y", padx=(Theme.PADDING_LARGE, 0))
+        self.top_container = tk.Frame(self.main_container, bg=Theme.BACKGROUND_PRIMARY)
+        self.top_container.pack(fill='both', expand=True)
+        self.left_panel = tk.Frame(self.top_container, bg=Theme.BACKGROUND_PRIMARY)
+        self.left_panel.pack(side='left', fill='both', expand=True, padx=(0, 8))
+        self.right_panel = tk.Frame(self.top_container, bg=Theme.BACKGROUND_PRIMARY, width=320)
+        self.right_panel.pack(side='right', fill='y', padx=(8, 0))
         self.right_panel.pack_propagate(False)
-    
+
     def create_bottom_section(self):
-        """創建底部區域"""
-        self.bottom_panel = ThemedFrame(self.main_container)
-        self.bottom_panel.pack(fill="both", expand=True, pady=(Theme.PADDING_MEDIUM, 0))
+        self.bottom_panel = tk.Frame(self.main_container, bg=Theme.BACKGROUND_PRIMARY)
+        self.bottom_panel.pack(fill='both', expand=True, pady=(5, 0))
         return self.bottom_panel
-    
+
     def get_left_panel(self):
-        """獲取左側面板"""
         return self.left_panel
-    
+
     def get_right_panel(self):
-        """獲取右側面板"""
         return self.right_panel
-    
+
     def get_bottom_panel(self):
-        """獲取底部面板"""
         return self.bottom_panel or self.create_bottom_section()
 
 
 class GridLayout:
-    """網格布局助手"""
-    
     @staticmethod
-    def create_grid_row(parent, widgets_config, row=0, padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL):
-        """
-        創建網格行
-        
-        Args:
-            parent: 父容器
-            widgets_config: 組件配置列表，每個元素為 (widget, column, sticky, colspan)
-            row: 行號
-            padx: 水平間距
-            pady: 垂直間距
-        """
+    def create_grid_row(parent, widgets_config, row=0,
+                        padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL):
         for widget, column, sticky, colspan in widgets_config:
-            widget.grid(
-                row=row, column=column,
-                padx=padx, pady=pady,
-                sticky=sticky,
-                columnspan=colspan if colspan else 1
-            )
+            widget.grid(row=row, column=column, padx=padx, pady=pady,
+                        sticky=sticky, columnspan=colspan or 1)
 
 
 class FormLayout:
-    """表單布局助手"""
-    
     @staticmethod
-    def create_form_row(parent, label_text, widget, label_width=12, 
-                       padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL):
-        """
-        創建表單行（標籤 + 控件）
-        
-        Args:
-            parent: 父容器
-            label_text: 標籤文字
-            widget: 控件
-            label_width: 標籤寬度
-            padx: 水平間距
-            pady: 垂直間距
-        """
+    def create_form_row(parent, label_text, widget, label_width=12,
+                        padx=Theme.PADDING_NORMAL, pady=Theme.PADDING_SMALL):
         row = ThemedFrame(parent)
-        row.pack(fill="x", pady=(0, pady))
-        
-        label = ThemedLabel(
-            row, text=label_text,
-            size=Theme.FONT_SIZE_NORMAL,
-            width=label_width,
-            anchor="w"
-        )
-        label.pack(side="left", padx=(0, padx))
-        
-        widget.pack(side="left", fill="x", expand=True)
-        
+        row.pack(fill='x', pady=(0, pady))
+        ThemedLabel(row, label_text, width=label_width, anchor='w').pack(side='left', padx=(0, padx))
+        widget.pack(side='left', fill='x', expand=True)
         return row
-

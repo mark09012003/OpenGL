@@ -1,41 +1,30 @@
 @echo off
+setlocal
+cd /d "%~dp0"
 chcp 65001 >nul
-echo ========================================
-echo MapleStory 自動化助手 - 打包腳本
-echo ========================================
-echo.
 
-REM 檢查是否安裝了 PyInstaller
-python -c "import PyInstaller" 2>nul
-if errorlevel 1 (
-    echo [錯誤] 未安裝 PyInstaller
-    echo 正在安裝 PyInstaller...
-    pip install pyinstaller
-    if errorlevel 1 (
-        echo [錯誤] PyInstaller 安裝失敗
-        pause
-        exit /b 1
-    )
+where py >nul 2>nul
+if not errorlevel 1 (
+    set "PYTHON=py -3"
+) else (
+    set "PYTHON=python"
 )
 
-echo [1/3] 清理舊的構建文件...
-if exist build rmdir /s /q build
-if exist dist rmdir /s /q dist
-if exist __pycache__ rmdir /s /q __pycache__
-for /d /r . %%d in (__pycache__) do @if exist "%%d" rmdir /s /q "%%d"
+%PYTHON% --version || goto :failed
+%PYTHON% -m pip install --upgrade -r requirements.txt pyinstaller || goto :failed
+%PYTHON% -m PyInstaller build.spec --clean --noconfirm || goto :failed
 
-echo [2/3] 開始打包...
-python -m PyInstaller build.spec --clean --noconfirm
+if not exist "dist\MapleStoryAutoPrayer.exe" goto :failed
+copy /y "config.json" "dist\config.json" >nul || goto :failed
 
-if errorlevel 1 (
-    echo [錯誤] 打包失敗
-    pause
-    exit /b 1
-)
-
-echo [3/3] 打包完成！
 echo.
-echo 可執行文件位置: dist\MapleStoryAutoPrayer.exe
-echo.
+echo Windows build ready: %CD%\dist\MapleStoryAutoPrayer.exe
+echo Copy both MapleStoryAutoPrayer.exe and config.json to the same folder.
 pause
+exit /b 0
 
+:failed
+echo.
+echo Build failed. Check the error above and use Python 3.10 or newer on Windows.
+pause
+exit /b 1

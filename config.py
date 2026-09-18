@@ -2,6 +2,8 @@
 import json
 import os
 import logging
+from copy import deepcopy
+import tempfile
 
 
 def create_default_config():
@@ -37,6 +39,7 @@ def create_default_config():
                 "stop_time": "13:00",
             },
             "detection": {
+                "self_bar_x": None,
                 "hp_bar_y": 445,
                 "hp_bar_min_width": 20,
                 "hp_bar_max_width": 45,
@@ -101,13 +104,16 @@ def read_config_file(config_file):
 
 def create_config_copy(config):
     """創建配置的副本"""
-    return config.copy()
+    return deepcopy(config)
 
 
 def merge_top_level_config(default_config, loaded_config):
     """合併頂層配置"""
     merged_config = create_config_copy(default_config)
-    merged_config.update(loaded_config)
+    for key, value in loaded_config.items():
+        if key in merged_config and isinstance(merged_config[key], dict):
+            continue
+        merged_config[key] = value
     return merged_config
 
 
@@ -119,14 +125,24 @@ def get_nested_config_keys():
 def merge_nested_config(merged_config, loaded_config, nested_keys):
     """合併嵌套配置"""
     for key in nested_keys:
-        if key in loaded_config:
+        if key in loaded_config and isinstance(loaded_config[key], dict):
             merged_config[key].update(loaded_config[key])
 
 
 def write_config_file(config_file, config_data):
     """寫入配置檔案"""
-    with open(config_file, 'w', encoding='utf-8') as f:
-        json.dump(config_data, f, indent=4, ensure_ascii=False)
+    directory = os.path.dirname(os.path.abspath(config_file))
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=directory,
+                                         prefix='.config-', suffix='.tmp',
+                                         delete=False) as f:
+            temporary = f.name
+            json.dump(config_data, f, indent=4, ensure_ascii=False)
+        os.replace(temporary, config_file)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 class ConfigManager:
@@ -172,4 +188,3 @@ class ConfigManager:
     def get_default(self):
         """獲取預設配置"""
         return create_config_copy(self.default_config)
-
