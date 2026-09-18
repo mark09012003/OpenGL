@@ -57,6 +57,7 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
         # 控制變數
         self.is_running = False
         self.worker_thread = None
+        self.stop_reason = None
         self.window_map = {}
         self.last_entered_free_market = False
         self.auto_stop_timer = None
@@ -492,7 +493,20 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
                 time.sleep(0.3)
         except Exception as e:
             self.logger.error(f"調整視窗大小失敗: {str(e)}")
+
+        if not self.window_manager.bring_to_front():
+            messagebox.showerror("無法啟動", "無法切換到遊戲視窗，請重新選擇視窗並確認遊戲正在執行")
+            return
+        if self.runtime_options["enter_fm"]:
+            self.detection_manager.detect_hp_bar_position()
+            if self.detection_manager.tracker.status in ("ambiguous", "occluded"):
+                messagebox.showwarning(
+                    "無法辨識自身角色",
+                    "目前有多條或重疊的血條。請在「自身血條 X」填入自己血條左端的座標，或到「校準畫面座標」確認位置後再啟動。",
+                )
+                return
         
+        self.stop_reason = None
         self.is_running = True
         self.automation_manager.is_running = True
         self.automation_manager.on_hp_bar_detection_failed = self.on_hp_bar_detection_failed
@@ -531,6 +545,7 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
     def stop_automation(self):
         """停止自動化"""
         self.logger.info("收到停止請求，正在終止自動化流程...")
+        self.stop_reason = None
         # 立即設置停止標誌（這是最重要的，必須立即執行）
         self.is_running = False
         self.automation_manager.is_running = False
@@ -599,8 +614,10 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
                 except:
                     pass
             
-            # 最後保存一次配置（使用 after 延遲執行，避免阻塞）
-            self.root.after(200, lambda: self._save_config_async())
+            if self.stop_reason:
+                reason = self.stop_reason
+                self.stop_reason = None
+                self.root.after(250, lambda: messagebox.showwarning("自動化已停止", reason))
         except Exception as e:
             self.logger.error(f"完成停止自動化時發生錯誤: {str(e)}")
     
@@ -731,6 +748,7 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
                     self.last_entered_free_market = False
                     if not manager.exit_free_market_with_position_check(manager.exit_target_x):
                         self.logger.warning("無法安全確認離開自由市場，停止循環")
+                        self.stop_reason = "無法確認自身角色已離開自由市場。請檢查血條校準、畫面遮擋及遊戲視窗。"
                         break
                     if options["anti_detect"]:
                         direction = options["direction"]
@@ -740,9 +758,11 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
                     in_market = self.detection_manager.check_free_market_entered()
                     if in_market:
                         if not manager.exit_free_market_with_position_check(manager.exit_target_x):
+                            self.stop_reason = "無法確認自身角色已離開自由市場。請檢查血條校準、畫面遮擋及遊戲視窗。"
                             break
                     elif self.detection_manager.tracker.status in ("ambiguous", "occluded"):
                         self.logger.warning("無法辨識自身血條，請在介面指定自身血條 X")
+                        self.stop_reason = "無法辨識自身血條。請在「自身血條 X」填入自己血條左端座標後重試。"
                         break
 
                 if options["fixed_move"] and not options["enter_fm"]:
@@ -766,7 +786,10 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
                 if options["skill4"]:
                     skills.append((options["skill4_key"], "技能4"))
                 for index, (key, label) in enumerate(skills):
-                    if not self.is_running or not manager.send_key_press(key, label):
+                    if not self.is_running:
+                        break
+                    if not manager.send_key_press(key, label):
+                        self.stop_reason = manager.last_error or "技能按鍵未能執行，請檢查遊戲視窗與按鍵設定。"
                         break
                     if index < len(skills) - 1 and not manager._sleep_with_check(options["interval"]):
                         break
@@ -774,8 +797,11 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
                     if options["enter_fm"]:
                         if not manager.handle_dialog_window(max_retries=3):
                             self.logger.warning("無法處理提示視窗，停止循環")
+                            self.stop_reason = "無法處理遊戲提示視窗，請檢查校準座標與遊戲視窗。"
                             break
                         if not manager.enter_free_market(max_retries=3, check_time=options["fm_check_time"]):
+                            if manager.is_running:
+                                self.stop_reason = "無法確認進入自由市場，請檢查遊戲畫面與血條校準。"
                             break
                         self.last_entered_free_market = True
                     if not self.is_running:
@@ -788,6 +814,7 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
                 break
         except Exception:
             self.logger.exception("自動化循環錯誤")
+            self.stop_reason = "執行時發生錯誤，請查看系統事件紀錄。"
         finally:
             self.is_running = False
             manager.is_running = False

@@ -93,6 +93,7 @@ class AutomationManager:
         self.detection_manager = detection_manager
         self.logger = logger or logging.getLogger(__name__)
         self.is_running = False
+        self.last_error = None
         self.last_entered_free_market = False
         self.just_exited_free_market = False  # 標記：剛剛離開自由市場（跳過重新執行邏輯）
         
@@ -120,14 +121,17 @@ class AutomationManager:
     
     def send_key_press(self, key: str, skill_name: str = "") -> bool:
         """發送按鍵（按壓0.3秒後放開）"""
+        self.last_error = None
         if not self.is_running:
             return False
             
         if not self.window_manager.is_valid():
+            self.last_error = "遊戲視窗已關閉，請重新選擇視窗"
             return False
         
         try:
             if not self.window_manager.bring_to_front():
+                self.last_error = "無法切換到遊戲視窗，請確認視窗未被最小化或權限未受限制"
                 return False
             
             # 使用可中斷的sleep（使用配置的等待時間）
@@ -135,6 +139,7 @@ class AutomationManager:
                 return False
             
             if not validate_key(key):
+                self.last_error = f"{skill_name or '技能'}的按鍵未設定"
                 return False
             
             # 按壓按鍵後放開（使用配置的持續時間，可中斷）
@@ -149,6 +154,7 @@ class AutomationManager:
             
             return True
         except Exception as e:
+            self.last_error = f"按鍵操作失敗：{e}"
             self.logger.error(f"發送按鍵失敗: {str(e)}")
             return False
     
