@@ -94,7 +94,11 @@ class PlayerBarTracker:
             gate = self.tolerance if self.position is not None else self.max_width
             ranked = sorted(((abs(b.x_start - predicted), b) for b in complete),
                             key=lambda item: item[0])
-            if self.occluded_identity and sum(distance <= gate for distance, _ in ranked) > 1:
+            # With three or more players, a different bar can be closer to the
+            # predicted position than the player's real bar. Position alone
+            # cannot prove identity, so never choose among multiple candidates
+            # inside the tracking gate.
+            if sum(distance <= gate for distance, _ in ranked) > 1:
                 return self._miss("ambiguous")
             if not ranked or ranked[0][0] > gate:
                 return self._miss("occluded" if bars else "missing")

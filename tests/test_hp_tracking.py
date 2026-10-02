@@ -26,6 +26,24 @@ class HpTrackingTests(unittest.TestCase):
         self.assertEqual(tracker.observe([bar(40), bar(150)]).x_start, 150)
         self.assertEqual(tracker.observe([bar(45), bar(160)]).x_start, 160)
 
+    def test_three_separated_players_keep_seeded_identity(self):
+        tracker = PlayerBarTracker(20, 45, 60, seed_x=150)
+        self.assertEqual(
+            tracker.observe([bar(30), bar(150), bar(270)]).x_start,
+            150,
+        )
+        self.assertEqual(
+            tracker.observe([bar(35), bar(158), bar(265)]).x_start,
+            158,
+        )
+
+    def test_multiple_players_inside_tracking_gate_are_ambiguous(self):
+        tracker = PlayerBarTracker(20, 45, 100, seed_x=150)
+        self.assertEqual(tracker.observe([bar(150)]).x_start, 150)
+        self.assertIsNone(tracker.observe([bar(90), bar(158), bar(280)]))
+        self.assertEqual(tracker.status, "ambiguous")
+        self.assertEqual(tracker.position, 150)
+
     def test_overlap_does_not_switch_to_other_player(self):
         tracker = PlayerBarTracker(20, 45, 60, seed_x=150)
         tracker.observe([bar(40), bar(150)])
