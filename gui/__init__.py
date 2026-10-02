@@ -744,6 +744,9 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
         manager = self.automation_manager
         try:
             while self.is_running and manager.is_running:
+                if not manager.focus_game_window():
+                    self.stop_reason = manager.last_error or "無法聚焦遊戲視窗。"
+                    break
                 if self.last_entered_free_market:
                     self.last_entered_free_market = False
                     if not manager.exit_free_market_with_position_check(manager.exit_target_x):
@@ -769,6 +772,9 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
                     if self.move_cycle_count % 3 == 0:
                         direction = "left" if self.last_move_direction == "right" else "right"
                         duration = options["left_time"] if direction == "left" else options["right_time"]
+                        if not manager.focus_game_window():
+                            self.stop_reason = manager.last_error or "無法聚焦遊戲視窗。"
+                            break
                         try:
                             pyautogui.keyDown(direction)
                             if not manager._sleep_with_check(duration):

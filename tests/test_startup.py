@@ -9,6 +9,15 @@ from automation import AutomationManager
 
 
 class StartupTests(unittest.TestCase):
+    def test_focus_helper_restores_game_before_input(self):
+        window = MagicMock()
+        window.is_valid.return_value = True
+        window.bring_to_front.return_value = True
+        manager = AutomationManager(window, MagicMock())
+
+        self.assertTrue(manager.focus_game_window(settle_time=0))
+        window.bring_to_front.assert_called_once_with()
+
     def test_key_failure_reports_why_the_loop_stopped(self):
         window = MagicMock()
         window.is_valid.return_value = True

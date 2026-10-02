@@ -118,6 +118,18 @@ class AutomationManager:
         # 跳過等待標誌
         self.skip_wait = False
         self.current_wait_remaining = None  # 當前剩餘等待時間（None表示沒有在等待）
+
+    def focus_game_window(self, settle_time: float = 0.05) -> bool:
+        """Ensure subsequent keyboard or mouse input is sent to the game."""
+        if not self.window_manager.is_valid():
+            self.last_error = "遊戲視窗已關閉，請重新選擇視窗"
+            return False
+        if not self.window_manager.bring_to_front():
+            self.last_error = "無法聚焦遊戲視窗，請確認視窗未被最小化或權限未受限制"
+            return False
+        if settle_time > 0:
+            time.sleep(settle_time)
+        return True
     
     def send_key_press(self, key: str, skill_name: str = "") -> bool:
         """發送按鍵（按壓0.3秒後放開）"""
@@ -125,13 +137,8 @@ class AutomationManager:
         if not self.is_running:
             return False
             
-        if not self.window_manager.is_valid():
-            self.last_error = "遊戲視窗已關閉，請重新選擇視窗"
-            return False
-        
         try:
-            if not self.window_manager.bring_to_front():
-                self.last_error = "無法切換到遊戲視窗，請確認視窗未被最小化或權限未受限制"
+            if not self.focus_game_window():
                 return False
             
             # 使用可中斷的sleep（使用配置的等待時間）
@@ -230,11 +237,8 @@ class AutomationManager:
             'dialog': 檢測到確認視窗（角色已在自由市場）
             'failed': 未檢測到血條也沒檢測到確認視窗（沒有成功進入）
         """
-        if not self.window_manager.is_valid():
-            return 'failed'
-        
         try:
-            if not self.window_manager.bring_to_front():
+            if not self.focus_game_window():
                 return 'failed'
             
             if not self._sleep_with_check(self.button_click_wait):
@@ -289,7 +293,7 @@ class AutomationManager:
         """Move in short pulses; never keep a direction held without a valid track."""
         tolerance = self.move_tolerance if tolerance is None else tolerance
         max_duration = self.move_max_duration if max_duration is None else max_duration
-        if not self.window_manager.is_valid() or not self.window_manager.bring_to_front():
+        if not self.focus_game_window():
             return False
         deadline = time.monotonic() + max_duration
         missing_since = None
@@ -314,6 +318,8 @@ class AutomationManager:
                 release_all_movement_keys()
                 return True
             direction = "right" if error > 0 else "left"
+            if not self.focus_game_window():
+                return False
             try:
                 pyautogui.keyDown(direction)
                 # Short pulses bound blind travel if the next frame is occluded.
@@ -345,6 +351,8 @@ class AutomationManager:
         for attempt in range(2):
             if not self.is_running:
                 return False
+            if not self.focus_game_window():
+                return False
             try:
                 pyautogui.keyDown("up")
                 if not self._sleep_with_check(self.exit_key_duration):
@@ -365,7 +373,7 @@ class AutomationManager:
 
     def exit_free_market(self, skip_check=False) -> bool:
         """Compatibility entry point for the previous GUI flow."""
-        if not self.window_manager.is_valid() or not self.window_manager.bring_to_front():
+        if not self.focus_game_window():
             return False
         if skip_check:
             try:
@@ -460,6 +468,8 @@ class AutomationManager:
         for i in range(num_moves):
             if not self.is_running:
                 break
+            if not self.focus_game_window():
+                break
                 
             self.logger.info(f"執行防偵測移動 ({i+1}/{num_moves})：長押方向鍵{move_key} {move_time}秒")
             pyautogui.keyDown(move_key)
@@ -494,7 +504,7 @@ class AutomationManager:
             if not self.window_manager.is_valid():
                 return False
             
-            if not self.window_manager.bring_to_front():
+            if not self.focus_game_window():
                 return False
             
             # 等待一小段時間確保視窗已顯示
