@@ -140,6 +140,8 @@ def create_action_buttons(parent, app):
     app.stop_btn = ThemedButton(frame, 'STOP  /  停止', command=app.stop_automation,
                                 variant='danger', state='disabled')
     app.stop_btn.pack(fill='x', pady=(0, 14))
+    ThemedButton(frame, 'MASTER / SLAVE 控制', command=app.open_remote_control,
+                 variant='secondary').pack(fill='x', pady=(0, 14))
     tk.Frame(frame, bg=Theme.BORDER_SECONDARY, height=1).pack(fill='x', pady=(0, 12))
     ThemedButton(frame, '測試自由市場辨識', command=app.test_free_market,
                  variant='secondary').pack(fill='x', pady=(0, 8))

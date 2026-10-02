@@ -19,9 +19,10 @@ from gui.layout import LayoutManager
 from gui.theme import Theme
 from gui.calibration import CalibrationMixin
 from gui.window_modes import WindowModesMixin
+from gui.remote_control import RemoteControlMixin
 
 
-class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
+class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin, RemoteControlMixin):
     """MapleStory自動化GUI主類"""
     
     def __init__(self, root, config_manager, window_manager, detection_manager, automation_manager, logger):
@@ -74,6 +75,7 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
         self.overlay_update_job = None
         self.hp_bar_overlay_canvas = None
         self.save_timer = None
+        self.initialize_remote_control()
         
         # 校準視窗相關
         self.calibration_window = None
@@ -937,6 +939,10 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
     def load_config(self):
         """載入配置"""
         config = self.config_manager.load()
+        try:
+            self.configure_remote_control(config.get("control", {}), persist=False)
+        except (ValueError, OSError) as exc:
+            self.logger.error("遠端控制設定無法啟用：%s", exc)
         
         if "window" in config and config["window"]:
             if hasattr(self, 'window_var'):
@@ -1005,6 +1011,7 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
         self.is_running = False
         self.automation_manager.is_running = False
         self.show_overlay = False
+        self.stop_remote_server()
         
         # 恢復正常視窗狀態
         self.restore_normal_window()

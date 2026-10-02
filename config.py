@@ -86,6 +86,12 @@ def create_default_config():
             },
             "alarm": {
                 "volume": 0.5,
+            },
+            "control": {
+                "mode": "standalone",
+                "port": 8765,
+                "token": "",
+                "slaves": [],
             }
         }
 
@@ -118,7 +124,7 @@ def merge_top_level_config(default_config, loaded_config):
 
 def get_nested_config_keys():
     """獲取需要合併的嵌套配置鍵列表"""
-    return ["skills", "parameters", "detection", "automation", "alarm"]
+    return ["skills", "parameters", "detection", "automation", "alarm", "control"]
 
 
 def merge_nested_config(merged_config, loaded_config, nested_keys):
