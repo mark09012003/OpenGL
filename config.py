@@ -156,6 +156,14 @@ class ConfigManager:
     def save(self, config_data):
         """保存配置到檔案"""
         try:
+            if check_config_file_exists(self.config_file):
+                try:
+                    if read_config_file(self.config_file) == config_data:
+                        self.logger.debug("配置未變更，略過寫入")
+                        return True
+                except (OSError, ValueError, json.JSONDecodeError):
+                    # A damaged or unreadable file should be replaced below.
+                    pass
             write_config_file(self.config_file, config_data)
             self.logger.info("配置已保存")
             return True

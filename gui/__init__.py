@@ -232,7 +232,10 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
         
         if window_titles:
             selected_title = window_titles[0]
-            self.window_var.set(selected_title)
+            # Avoid firing the autosave trace when refresh selects the title
+            # that is already loaded from config.
+            if self.window_var.get() != selected_title:
+                self.window_var.set(selected_title)
             self.on_window_selected()
         else:
             self.window_var.set("")

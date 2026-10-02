@@ -74,6 +74,19 @@ class HpTrackingTests(unittest.TestCase):
             self.assertEqual(config["detection"]["hp_bar_y"], 444)
             self.assertIn("character_x_tolerance", config["detection"])
 
+    def test_unchanged_config_does_not_rewrite_file(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            data = {"window": "MapleStory Worlds-Artale"}
+            path.write_text(json.dumps(data), encoding="utf-8")
+            manager = ConfigManager(str(path))
+            with patch("config.write_config_file") as write:
+                self.assertTrue(manager.save(data))
+            write.assert_not_called()
+
     def test_detector_crops_to_narrow_strip_and_keeps_identity(self):
         class Window:
             def get_window_handle(self):
