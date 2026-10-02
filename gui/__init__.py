@@ -844,8 +844,7 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
                 'custom_skill1_key_var', 'custom_skill2_key_var',
                 'blessing_interval_var', 'fm_wait_var', 'fm_check_time_var',
                 'auto_stop_time_var', 'target_width_var', 'target_height_var',
-                'left_move_time_var', 'right_move_time_var', 'move_direction_var',
-                'self_bar_x_var'
+                'left_move_time_var', 'right_move_time_var', 'move_direction_var'
             ]
             
             boolean_vars = [
@@ -928,14 +927,9 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
                 ("anti_detect_after_fm", self.anti_detect_after_fm_var),
             ):
                 parameters[key] = var.get()
-            reference = self.self_bar_x_var.get().strip()
-            try:
-                value = float(reference) if reference else None
-                if value is not None and (not math.isfinite(value) or value < 0):
-                    return
-                detection["self_bar_x"] = value
-            except ValueError:
-                return
+            # The player's X coordinate is a session-only tracking seed. It
+            # changes between maps and launches, so remove legacy persisted data.
+            detection.pop("self_bar_x", None)
             self.config_manager.save(config)
         except Exception:
             self.logger.exception("保存配置失敗")
@@ -971,9 +965,8 @@ class MapleStoryAutoPrayerGUI(CalibrationMixin, WindowModesMixin):
             if hasattr(self, 'custom_skill2_key_var') and "custom_skill2_key" in skills:
                 self.custom_skill2_key_var.set(skills["custom_skill2_key"])
         
-        if "detection" in config:
-            reference = config["detection"].get("self_bar_x")
-            self.self_bar_x_var.set("" if reference is None else str(reference))
+        # Always start without a stale player position from a previous session.
+        self.self_bar_x_var.set("")
 
         if "parameters" in config:
             params = config["parameters"]

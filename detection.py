@@ -36,13 +36,10 @@ class DetectionManager:
             setattr(self, key, int(settings[key]))
         self.color_r_g_ratio = float(settings["color_r_g_ratio"])
         self.color_r_b_ratio = float(settings["color_r_b_ratio"])
-        reference_x = None
-        if config:
-            reference_x = config.get("detection", {}).get("self_bar_x")
         self.tracker = PlayerBarTracker(
             self.hp_bar_min_width, self.hp_bar_max_width,
             self.character_x_tolerance,
-            float(reference_x) if reference_x not in (None, "") else None,
+            None,
         )
         self.reference_x = self.tracker.seed_x
 

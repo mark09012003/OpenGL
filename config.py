@@ -39,7 +39,6 @@ def create_default_config():
                 "stop_time": "13:00",
             },
             "detection": {
-                "self_bar_x": None,
                 "hp_bar_y": 445,
                 "hp_bar_min_width": 20,
                 "hp_bar_max_width": 45,

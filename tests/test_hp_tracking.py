@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 from PIL import Image
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from hp_tracking import Bar, PlayerBarTracker, red_intervals
 from config import ConfigManager
@@ -97,8 +97,9 @@ class HpTrackingTests(unittest.TestCase):
 
         detector = DetectionManager(Window(), {"detection": {
             "hp_bar_y": 445, "hp_bar_min_width": 20,
-            "hp_bar_max_width": 45, "self_bar_x": 150,
+            "hp_bar_max_width": 45,
         }})
+        detector.reset_tracking(150)
         frames = []
         for intervals in (((40, 30), (150, 30)),
                           ((40, 30), (140, 55)),
@@ -118,6 +119,13 @@ class HpTrackingTests(unittest.TestCase):
             self.assertIsNone(detector.detect_hp_bar_position())
             self.assertEqual(detector.detect_hp_bar_position()[0], 155)
         self.assertEqual(bboxes[0], (20, 470, 320, 481))
+
+    def test_legacy_saved_player_x_is_not_reused(self):
+        detector = DetectionManager(MagicMock(), {
+            "detection": {"self_bar_x": 150}
+        })
+        self.assertIsNone(detector.reference_x)
+        self.assertIsNone(detector.tracker.seed_x)
 
     def test_detector_ignores_single_noisy_pixel_on_calibrated_row(self):
         class Window:
