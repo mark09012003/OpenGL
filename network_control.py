@@ -2,15 +2,45 @@
 from __future__ import annotations
 
 import hmac
+import hashlib
 import json
+import re
 import socket
+import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
 MAX_BODY_BYTES = 4096
+DISCOVERY_PREFIX = "maplestory-control-v1"
+
+
+def _signature(token: str, message: str) -> str:
+    return hmac.new(token.encode("utf-8"), message.encode("utf-8"),
+                    hashlib.sha256).hexdigest()
+
+
+def parse_arp_neighbors(output: str):
+    """Extract unique IPv4 neighbor addresses from Windows or Unix arp output."""
+    addresses = []
+    for address in re.findall(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])", output):
+        parts = address.split(".")
+        if all(0 <= int(part) <= 255 for part in parts) and address not in addresses:
+            if not address.startswith("224.") and address != "255.255.255.255":
+                addresses.append(address)
+    return addresses
+
+
+def arp_neighbors():
+    try:
+        result = subprocess.run(["arp", "-a"], capture_output=True, text=True,
+                                timeout=3, check=False)
+        return parse_arp_neighbors(result.stdout)
+    except (OSError, subprocess.SubprocessError):
+        return []
 
 
 def normalize_endpoint(value: str, default_port: int = 8765) -> str:
@@ -48,6 +78,9 @@ class SlaveControlServer:
         self.logger = logger
         self._server = None
         self._thread = None
+        self._discovery_socket = None
+        self._discovery_thread = None
+        self.last_master = None
 
     @property
     def is_running(self):
@@ -110,14 +143,58 @@ class SlaveControlServer:
         self._thread = threading.Thread(target=self._server.serve_forever,
                                         name="slave-control", daemon=True)
         self._thread.start()
+        self._start_discovery()
+
+    def _start_discovery(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((self.host, self.port))
+        sock.settimeout(0.5)
+        self._discovery_socket = sock
+
+        def listen():
+            while self._discovery_socket is sock:
+                try:
+                    raw, sender = sock.recvfrom(MAX_BODY_BYTES)
+                    request = json.loads(raw.decode("utf-8"))
+                    nonce = str(request.get("nonce", ""))
+                    expected = _signature(self.token, f"{DISCOVERY_PREFIX}:discover:{nonce}")
+                    if (request.get("type") != "discover" or not nonce or
+                            not hmac.compare_digest(str(request.get("signature", "")), expected)):
+                        continue
+                    self.last_master = sender[0]
+                    status = self.status_callback()
+                    reply = {
+                        "type": "slave", "nonce": nonce, "port": self.port,
+                        "state": status.get("state", "unknown"),
+                        "name": status.get("name", "slave"),
+                        "signature": _signature(
+                            self.token, f"{DISCOVERY_PREFIX}:slave:{nonce}:{self.port}"
+                        ),
+                    }
+                    sock.sendto(json.dumps(reply).encode("utf-8"), sender)
+                except socket.timeout:
+                    continue
+                except (OSError, ValueError, json.JSONDecodeError):
+                    if self._discovery_socket is not sock:
+                        break
+
+        self._discovery_thread = threading.Thread(target=listen,
+                                                  name="slave-discovery", daemon=True)
+        self._discovery_thread.start()
 
     def stop(self):
+        discovery = self._discovery_socket
+        self._discovery_socket = None
+        if discovery is not None:
+            discovery.close()
         server = self._server
         self._server = None
         if server is not None:
             server.shutdown()
             server.server_close()
         self._thread = None
+        self._discovery_thread = None
 
 
 class MasterClient:
@@ -148,3 +225,53 @@ class MasterClient:
         if command not in ("start", "stop"):
             raise ValueError("unsupported command")
         return self._request(endpoint, "/command", {"command": command})
+
+    def discover(self, port=8765, timeout=1.2, include_arp=True,
+                 broadcast_addresses=None):
+        """Discover authenticated slaves by UDP broadcast, then probe ARP peers."""
+        nonce = f"{time.time_ns():x}"
+        request = {
+            "type": "discover", "nonce": nonce,
+            "signature": _signature(
+                self.token, f"{DISCOVERY_PREFIX}:discover:{nonce}"
+            ),
+        }
+        found = {}
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.settimeout(0.15)
+        try:
+            sock.bind(("", 0))
+            packet = json.dumps(request).encode("utf-8")
+            for address in broadcast_addresses or ("255.255.255.255",):
+                sock.sendto(packet, (address, int(port)))
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    raw, sender = sock.recvfrom(MAX_BODY_BYTES)
+                    reply = json.loads(raw.decode("utf-8"))
+                    reply_port = int(reply.get("port", 0))
+                    expected = _signature(
+                        self.token, f"{DISCOVERY_PREFIX}:slave:{nonce}:{reply_port}"
+                    )
+                    if (reply.get("type") == "slave" and reply.get("nonce") == nonce and
+                            hmac.compare_digest(str(reply.get("signature", "")), expected)):
+                        endpoint = f"{sender[0]}:{reply_port}"
+                        found[endpoint] = reply
+                except socket.timeout:
+                    continue
+                except (ValueError, json.JSONDecodeError):
+                    continue
+        finally:
+            sock.close()
+
+        if include_arp:
+            for address in arp_neighbors():
+                endpoint = f"{address}:{int(port)}"
+                if endpoint in found:
+                    continue
+                try:
+                    found[endpoint] = self.status(endpoint)
+                except ConnectionError:
+                    continue
+        return found

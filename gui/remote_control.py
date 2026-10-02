@@ -149,7 +149,10 @@ class RemoteControlMixin:
             try:
                 self.configure_remote_control(values(), persist=True)
                 if self.control_config["mode"] == "slave":
-                    show_status([f"SLAVE ONLINE  http://{local_ip_address()}:{self.control_config['port']}"])
+                    show_status([
+                        f"SLAVE ONLINE  http://{local_ip_address()}:{self.control_config['port']}",
+                        "等待 Master 自動探索...",
+                    ])
                 else:
                     show_status([f"模式已切換：{self.control_config['mode'].upper()}"])
             except (ValueError, OSError) as exc:
@@ -181,9 +184,40 @@ class RemoteControlMixin:
                 self.ui_queue.put(lambda: show_status(lines or ["尚未設定 Slave 位址"]))
             threading.Thread(target=worker, name="master-command", daemon=True).start()
 
+        def discover_slaves():
+            try:
+                pending = values()
+                pending["mode"] = "master"
+                mode_var.set("master")
+                self.configure_remote_control(pending, persist=True)
+            except (ValueError, OSError) as exc:
+                messagebox.showerror("探索失敗", str(exc), parent=window)
+                return
+            show_status(["正在透過區網廣播與 ARP 尋找 Slave..."])
+
+            def worker():
+                client = MasterClient(self.control_config["token"])
+                found = client.discover(self.control_config["port"])
+                endpoints = sorted(found)
+
+                def update():
+                    slaves_text.delete("1.0", "end")
+                    slaves_text.insert("1.0", "\n".join(endpoints))
+                    self.control_config["slaves"] = endpoints
+                    full_config = self.config_manager.load()
+                    full_config["control"] = dict(self.control_config)
+                    self.config_manager.save(full_config)
+                    show_status([
+                        f"{endpoint:<28} {found[endpoint].get('state', 'unknown').upper()}"
+                        for endpoint in endpoints
+                    ] or ["未找到 Slave；請確認防火牆、連接埠與共享密鑰"])
+                self.ui_queue.put(update)
+            threading.Thread(target=worker, name="master-discovery", daemon=True).start()
+
         buttons = tk.Frame(content, bg=Theme.BACKGROUND_PRIMARY)
         buttons.pack(fill="x")
         ttk.Button(buttons, text="套用設定", command=apply).pack(side="left")
-        ttk.Button(buttons, text="重新整理狀態", command=lambda: run_master()).pack(side="left", padx=7)
+        ttk.Button(buttons, text="自動尋找", command=discover_slaves).pack(side="left", padx=7)
+        ttk.Button(buttons, text="重新整理", command=lambda: run_master()).pack(side="left")
         ttk.Button(buttons, text="全部開始", command=lambda: run_master("start")).pack(side="right")
         ttk.Button(buttons, text="全部停止", command=lambda: run_master("stop")).pack(side="right", padx=7)
