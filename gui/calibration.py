@@ -5,6 +5,61 @@ from tkinter import ttk, messagebox
 from gui.theme import Theme
 from gui.widgets import ThemedEntry
 
+
+DETECTION_INTEGER_KEYS = {
+    "hp_bar_y", "hp_bar_min_width", "hp_bar_max_width", "color_r_min",
+    "color_r_max", "color_g_max", "color_b_max", "pixel_gap_tolerance",
+    "character_y_offset", "character_x_tolerance", "dialog_check_x",
+    "dialog_check_y", "dialog_check_width", "dialog_check_height",
+    "dialog_bg_r", "dialog_bg_g", "dialog_bg_b", "dialog_bg_tolerance",
+}
+DETECTION_FLOAT_KEYS = {"color_r_g_ratio", "color_r_b_ratio"}
+AUTOMATION_INTEGER_KEYS = {
+    "exit_target_x", "fm_button_x", "fm_button_y", "move_tolerance",
+    "anti_detect_min_moves", "anti_detect_max_moves",
+    "dialog_close_button_x", "dialog_close_button_y",
+}
+
+
+def parse_calibration_values(raw_values):
+    """Parse and validate the complete calibration form atomically."""
+    parsed = {}
+    for key, raw in raw_values.items():
+        text = str(raw).strip()
+        if text == "":
+            raise ValueError(f"{key} 不可留空")
+        try:
+            if key in DETECTION_INTEGER_KEYS or key in AUTOMATION_INTEGER_KEYS:
+                number = float(text)
+                if not number.is_integer():
+                    raise ValueError
+                parsed[key] = int(number)
+            else:
+                parsed[key] = float(text)
+        except ValueError as error:
+            raise ValueError(f"{key} 必須是有效數字") from error
+
+    nonnegative = set(parsed) - {"character_y_offset"}
+    for key in nonnegative:
+        if parsed[key] < 0:
+            raise ValueError(f"{key} 不可小於 0")
+    for key in ("dialog_check_width", "dialog_check_height", "hp_bar_min_width",
+                "hp_bar_max_width", "character_x_tolerance"):
+        if key in parsed and parsed[key] <= 0:
+            raise ValueError(f"{key} 必須大於 0")
+    for key in ("color_r_min", "color_r_max", "color_g_max", "color_b_max",
+                "dialog_bg_r", "dialog_bg_g", "dialog_bg_b"):
+        if key in parsed and parsed[key] > 255:
+            raise ValueError(f"{key} 必須介於 0 到 255")
+    if parsed.get("hp_bar_min_width", 0) > parsed.get("hp_bar_max_width", float("inf")):
+        raise ValueError("血條最小寬度不可大於最大寬度")
+    if parsed.get("color_r_min", 0) > parsed.get("color_r_max", float("inf")):
+        raise ValueError("R 最小值不可大於 R 最大值")
+    if parsed.get("anti_detect_min_moves", 0) > parsed.get("anti_detect_max_moves", float("inf")):
+        raise ValueError("防偵測最小移動次數不可大於最大移動次數")
+    return parsed
+
+
 class CalibrationMixin:
     def toggle_overlay(self):
         """Toggle the position overlay on Tk's event loop."""
@@ -41,6 +96,16 @@ class CalibrationMixin:
                 except:
                     pass
                 self.calibration_overlay_window = None
+                self.calibration_canvas = None
+            self.calibration_dragging = None
+            for flag in (
+                "show_hp_bar_y_line", "show_exit_target_x_line",
+                "show_fm_button_marker", "show_fm_button_x_line",
+                "show_fm_button_y_line", "show_dialog_close_x_line",
+                "show_dialog_close_y_line", "show_dialog_check_x_line",
+                "show_dialog_check_y_line",
+            ):
+                setattr(self, flag, False)
 
     def update_overlay_position(self):
         """Refresh once, then schedule the next frame without another thread."""
@@ -231,7 +296,7 @@ class CalibrationMixin:
 
         # 左列：血條相關參數
         self.show_hp_bar_y_btn = create_param_row(detection_left, "血條Y軸", "hp_bar_y", 445, True, self.toggle_hp_bar_y_line)
-        create_param_row(detection_left, "血條最小寬度", "hp_bar_min_width", 40)
+        create_param_row(detection_left, "血條最小寬度", "hp_bar_min_width", 20)
         create_param_row(detection_left, "血條最大寬度", "hp_bar_max_width", 45)
         create_param_row(detection_left, "R最小值", "color_r_min", 150)
         create_param_row(detection_left, "R最大值", "color_r_max", 255)
@@ -243,6 +308,7 @@ class CalibrationMixin:
         create_param_row(detection_right, "R/B比例", "color_r_b_ratio", 1.5)
         create_param_row(detection_right, "像素間隙容差", "pixel_gap_tolerance", 2)
         create_param_row(detection_right, "角色Y偏移", "character_y_offset", 15)
+        create_param_row(detection_right, "角色X追蹤容差", "character_x_tolerance", 100)
 
         # ========== 標籤頁2: 提示視窗檢測參數 ==========
         tab2 = tk.Frame(notebook, bg=Theme.BACKGROUND_SECONDARY)
@@ -288,14 +354,14 @@ class CalibrationMixin:
 
         # 左列
         self.show_dialog_check_x_btn = create_dialog_param_row(dialog_left, "檢測區域X", "dialog_check_x", 500, True, self.toggle_dialog_check_x_line)
-        create_dialog_param_row(dialog_left, "檢測區域寬度", "dialog_check_width", 200)
-        create_dialog_param_row(dialog_left, "背景顏色R", "dialog_bg_r", 64)
-        create_dialog_param_row(dialog_left, "背景顏色B", "dialog_bg_b", 223)
+        create_dialog_param_row(dialog_left, "檢測區域寬度", "dialog_check_width", 20)
+        create_dialog_param_row(dialog_left, "背景顏色R", "dialog_bg_r", 68)
+        create_dialog_param_row(dialog_left, "背景顏色B", "dialog_bg_b", 187)
 
         # 右列
         self.show_dialog_check_y_btn = create_dialog_param_row(dialog_right, "檢測區域Y", "dialog_check_y", 300, True, self.toggle_dialog_check_y_line)
-        create_dialog_param_row(dialog_right, "檢測區域高度", "dialog_check_height", 100)
-        create_dialog_param_row(dialog_right, "背景顏色G", "dialog_bg_g", 164)
+        create_dialog_param_row(dialog_right, "檢測區域高度", "dialog_check_height", 20)
+        create_dialog_param_row(dialog_right, "背景顏色G", "dialog_bg_g", 136)
         create_dialog_param_row(dialog_right, "顏色容差", "dialog_bg_tolerance", 30)
 
         # 測試按鈕
@@ -350,11 +416,11 @@ class CalibrationMixin:
             return None
 
         # 左列：位置和按鈕相關
-        self.show_exit_target_x_btn = create_automation_param_row(automation_left, "退出目標X", "exit_target_x", 250, True, self.toggle_exit_target_x_line)
+        self.show_exit_target_x_btn = create_automation_param_row(automation_left, "退出目標X", "exit_target_x", 237, True, self.toggle_exit_target_x_line)
         self.show_fm_button_x_btn = create_automation_param_row(automation_left, "自由市場按鈕X", "fm_button_x", 980, True, self.toggle_fm_button_x_line)
         self.show_fm_button_y_btn = create_automation_param_row(automation_left, "自由市場按鈕Y", "fm_button_y", 720, True, self.toggle_fm_button_y_line)
-        self.show_dialog_close_x_btn = create_automation_param_row(automation_left, "提示框關閉按鈕X", "dialog_close_button_x", 600, True, self.toggle_dialog_close_x_line)
-        self.show_dialog_close_y_btn = create_automation_param_row(automation_left, "提示框關閉按鈕Y", "dialog_close_button_y", 400, True, self.toggle_dialog_close_y_line)
+        self.show_dialog_close_x_btn = create_automation_param_row(automation_left, "提示框關閉按鈕X", "dialog_close_button_x", 830, True, self.toggle_dialog_close_x_line)
+        self.show_dialog_close_y_btn = create_automation_param_row(automation_left, "提示框關閉按鈕Y", "dialog_close_button_y", 466, True, self.toggle_dialog_close_y_line)
         create_automation_param_row(automation_left, "移動容差", "move_tolerance", 20)
         create_automation_param_row(automation_left, "最大移動時間(秒)", "move_max_duration", 30)
         create_automation_param_row(automation_left, "防偵測最小移動", "anti_detect_min_moves", 0)
@@ -379,7 +445,13 @@ class CalibrationMixin:
                             activebackground=Theme.BUTTON_PRIMARY_HOVER, activeforeground=Theme.BUTTON_PRIMARY_TEXT,
                             font=Theme.get_font_config(Theme.FONT_SIZE_NORMAL, 'bold'), relief='flat', cursor='hand2',
                             width=20, height=2)
-        save_btn.pack(expand=True, pady=10)
+        save_btn.pack(side="left", padx=16, pady=8)
+        self.calibration_status_label = tk.Label(
+            bottom_btn_frame, text="修改後請保存", bg=Theme.BACKGROUND_SECONDARY,
+            fg=Theme.TEXT_SECONDARY,
+            font=Theme.get_font_config(Theme.FONT_SIZE_SMALL, 'normal')
+        )
+        self.calibration_status_label.pack(side="right", padx=16)
 
     def on_calibration_change(self, param_key, var):
         """當校準參數改變時的回調 - 只更新屬性值，不重新初始化管理器"""
@@ -387,20 +459,12 @@ class CalibrationMixin:
             value = var.get()
 
             # 判斷參數類型並直接更新管理器屬性
-            if param_key in ["hp_bar_y", "hp_bar_min_width", "hp_bar_max_width", "color_r_min", "color_r_max",
-                        "color_g_max", "color_b_max", "pixel_gap_tolerance", "character_y_offset",
-                        "dialog_check_x", "dialog_check_y", "dialog_check_width", "dialog_check_height",
-                        "dialog_bg_r", "dialog_bg_g", "dialog_bg_b", "dialog_bg_tolerance"]:
-                # Detection 參數（整數）
-                if param_key in ["color_r_g_ratio", "color_r_b_ratio"]:
-                    setattr(self.detection_manager, param_key, float(value))
-                else:
-                    setattr(self.detection_manager, param_key, int(float(value)))
-            elif param_key in ["exit_target_x", "fm_button_x", "fm_button_y", "move_tolerance",
-                            "anti_detect_min_moves", "anti_detect_max_moves", "dialog_close_button_x", "dialog_close_button_y"]:
+            if param_key in DETECTION_INTEGER_KEYS:
+                setattr(self.detection_manager, param_key, int(float(value)))
+            elif param_key in AUTOMATION_INTEGER_KEYS:
                 # Automation 參數（整數）
                 setattr(self.automation_manager, param_key, int(float(value)))
-            elif param_key in ["color_r_g_ratio", "color_r_b_ratio"]:
+            elif param_key in DETECTION_FLOAT_KEYS:
                 # Detection 參數（浮點數）
                 setattr(self.detection_manager, param_key, float(value))
             else:
@@ -408,7 +472,9 @@ class CalibrationMixin:
                 setattr(self.automation_manager, param_key, float(value))
 
             # 觸發overlay更新
-            if self.show_calibration:
+            if hasattr(self, "calibration_status_label"):
+                self.calibration_status_label.config(text="尚未保存", fg=Theme.STATUS_WARNING)
+            if self.show_calibration and not self.calibration_dragging:
                 self.root.after(10, self._schedule_calibration_overlay_update)
 
         except (ValueError, TypeError) as e:
@@ -422,36 +488,29 @@ class CalibrationMixin:
                 messagebox.showwarning("警告", "沒有可保存的配置")
                 return
 
+            parsed = parse_calibration_values({
+                key: var.get() for key, var in self.calibration_vars.items()
+            })
             config = self.config_manager.load()
+            detection = config.setdefault("detection", {})
+            automation = config.setdefault("automation", {})
+            for param_key, value in parsed.items():
+                if param_key in DETECTION_INTEGER_KEYS or param_key in DETECTION_FLOAT_KEYS:
+                    detection[param_key] = value
+                    setattr(self.detection_manager, param_key, value)
+                else:
+                    automation[param_key] = value
+                    setattr(self.automation_manager, param_key, value)
 
-            # 更新所有參數到配置
-            for param_key, var in self.calibration_vars.items():
-                value = var.get()
-                try:
-                    if param_key in ["hp_bar_y", "hp_bar_min_width", "hp_bar_max_width", "color_r_min", "color_r_max",
-                                    "color_g_max", "color_b_max", "pixel_gap_tolerance", "character_y_offset",
-                                    "dialog_check_x", "dialog_check_y", "dialog_check_width", "dialog_check_height",
-                                    "dialog_bg_r", "dialog_bg_g", "dialog_bg_b", "dialog_bg_tolerance"]:
-                        # Detection 參數（整數）
-                        if param_key in ["color_r_g_ratio", "color_r_b_ratio"]:
-                            config.setdefault("detection", {})[param_key] = float(value)
-                        else:
-                            config.setdefault("detection", {})[param_key] = int(float(value))
-                    elif param_key in ["exit_target_x", "fm_button_x", "fm_button_y", "move_tolerance",
-                                    "anti_detect_min_moves", "anti_detect_max_moves", "dialog_close_button_x", "dialog_close_button_y"]:
-                        # Automation 參數（整數）
-                        config.setdefault("automation", {})[param_key] = int(float(value))
-                    elif param_key in ["color_r_g_ratio", "color_r_b_ratio"]:
-                        # Detection 參數（浮點數）
-                        config.setdefault("detection", {})[param_key] = float(value)
-                    else:
-                        # Automation 參數（浮點數）
-                        config.setdefault("automation", {})[param_key] = float(value)
-                except (ValueError, TypeError):
-                    continue
-
-            self.config_manager.save(config)
+            if not self.config_manager.save(config):
+                raise OSError("設定檔無法寫入")
+            if hasattr(self, "calibration_status_label"):
+                self.calibration_status_label.config(text="已保存", fg=Theme.STATUS_SUCCESS)
             messagebox.showinfo("成功", "校準數值已保存")
+        except ValueError as e:
+            if hasattr(self, "calibration_status_label"):
+                self.calibration_status_label.config(text="數值有誤", fg=Theme.STATUS_ERROR)
+            messagebox.showerror("校準數值有誤", str(e))
         except Exception as e:
             self.logger.error(f"保存校準配置失敗: {str(e)}")
             messagebox.showerror("錯誤", f"保存配置失敗: {str(e)}")
@@ -510,10 +569,6 @@ class CalibrationMixin:
             return
 
         try:
-            # 清除舊的內容
-            for widget in self.calibration_overlay_window.winfo_children():
-                widget.destroy()
-
             # 如果沒有任何參考線需要顯示，隱藏overlay
             if not (self.show_hp_bar_y_line or self.show_exit_target_x_line or self.show_fm_button_marker or
                     self.show_fm_button_x_line or self.show_fm_button_y_line or
@@ -522,17 +577,20 @@ class CalibrationMixin:
                 self.calibration_overlay_window.withdraw()
                 return
 
-            # 創建Canvas來繪製參考線
-            canvas = tk.Canvas(
-                self.calibration_overlay_window,
-                bg="black",
-                highlightthickness=0,
-                width=window_width,
-                height=window_height,
-                cursor="crosshair"
-            )
-            canvas.pack()
-            self.calibration_canvas = canvas
+            # Reuse the canvas so editing a field or dragging a guide does not
+            # destroy the widget that currently owns the pointer gesture.
+            canvas = self.calibration_canvas
+            if canvas is None or not canvas.winfo_exists():
+                canvas = tk.Canvas(
+                    self.calibration_overlay_window, bg="black",
+                    highlightthickness=0, width=window_width,
+                    height=window_height, cursor="crosshair"
+                )
+                canvas.pack()
+                self.calibration_canvas = canvas
+            else:
+                canvas.config(width=window_width, height=window_height)
+                canvas.delete("all")
 
             # 從管理器的當前屬性值獲取（優先），如果沒有則從配置讀取
             # 這樣可以反映用戶在輸入框中修改但尚未保存的值
@@ -998,6 +1056,8 @@ class CalibrationMixin:
             self.calibration_canvas.config(cursor="crosshair")
         self.calibration_dragging = None
         self.calibration_drag_start_pos = None
+        if self.show_calibration:
+            self.root.after(10, self._schedule_calibration_overlay_update)
 
     def toggle_hp_bar_y_line(self):
         """切換血條Y軸參考線顯示"""
